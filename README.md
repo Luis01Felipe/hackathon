@@ -18,7 +18,7 @@ Cada apontamento diz **o que** está errado, **onde** (página do edital e/ou Gl
 |---|---|
 | **IFC** (IFC2X3, IFC4, IFC4X3) | Entrada do modelo, classes, Psets, GlobalIds e saúde do modelo |
 | **IDS 1.0** | Contrato de dados gerado do EIR aprovado, validado contra o XSD oficial e usado na verificação |
-| **BCF 2.1** | Exportação das não conformidades, com elementos e câmera |
+| **BCF 2.1** | Um tópico por apontamento do modelo, com um viewpoint por elemento (seleção, destaque em vermelho e câmera enquadrando o elemento), uma visão geral e um comentário ligado a cada viewpoint |
 | **bSDD** | URIs de propriedades e busca de termos (API REST pública) |
 | **Psets oficiais** | Vocabulário controlado dos requisitos e das sugestões de lacuna |
 
