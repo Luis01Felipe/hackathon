@@ -1,0 +1,5 @@
+node_modules/
+dist/
+# gerados pelo scripts/copy-assets.mjs (postinstall)
+public/wasm/
+public/fragments/

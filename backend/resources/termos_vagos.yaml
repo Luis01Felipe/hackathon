@@ -1,0 +1,37 @@
+# Léxico de termos vagos (análise B, RF-42). Autoria do time EditalCheck.
+# A busca ignora caixa e acentos e respeita os limites de palavra.
+# Cada entrada: termo, categoria e sugestão de redação mensurável.
+versao: "2026-11-22.1"
+termos:
+  - {termo: "adequado", categoria: "qualidade sem critério", sugestao: "Substitua por um valor ou critério verificável (ex.: propriedade e valor exigidos)."}
+  - {termo: "adequada", categoria: "qualidade sem critério", sugestao: "Substitua por um valor ou critério verificável."}
+  - {termo: "adequados", categoria: "qualidade sem critério", sugestao: "Substitua por um valor ou critério verificável."}
+  - {termo: "adequadas", categoria: "qualidade sem critério", sugestao: "Substitua por um valor ou critério verificável."}
+  - {termo: "conforme normas vigentes", categoria: "norma não identificada", sugestao: "Cite a norma com número e versão (ex.: ABNT NBR xxxx:aaaa)."}
+  - {termo: "normas vigentes", categoria: "norma não identificada", sugestao: "Cite a norma com número e versão."}
+  - {termo: "normas aplicáveis", categoria: "norma não identificada", sugestao: "Liste as normas aplicáveis com número e versão."}
+  - {termo: "legislação pertinente", categoria: "norma não identificada", sugestao: "Cite a lei ou norma com número e ano."}
+  - {termo: "boa qualidade", categoria: "qualidade sem critério", sugestao: "Defina o critério de qualidade (classe, valor ou ensaio)."}
+  - {termo: "alta qualidade", categoria: "qualidade sem critério", sugestao: "Defina o critério de qualidade (classe, valor ou ensaio)."}
+  - {termo: "quando necessário", categoria: "condição indefinida", sugestao: "Defina em quais situações a exigência se aplica."}
+  - {termo: "quando necessária", categoria: "condição indefinida", sugestao: "Defina em quais situações a exigência se aplica."}
+  - {termo: "se necessário", categoria: "condição indefinida", sugestao: "Defina em quais situações a exigência se aplica."}
+  - {termo: "sempre que possível", categoria: "condição indefinida", sugestao: "Torne a exigência obrigatória ou defina as exceções."}
+  - {termo: "a critério da fiscalização", categoria: "decisão discricionária", sugestao: "Defina o critério objetivo que a fiscalização usará."}
+  - {termo: "a critério da contratante", categoria: "decisão discricionária", sugestao: "Defina o critério objetivo que a contratante usará."}
+  - {termo: "compatível", categoria: "comparação sem referência", sugestao: "Diga compatível com o quê, com valor ou norma."}
+  - {termo: "compatíveis", categoria: "comparação sem referência", sugestao: "Diga compatível com o quê, com valor ou norma."}
+  - {termo: "padrão de mercado", categoria: "referência indefinida", sugestao: "Defina o padrão (norma, catálogo ou especificação técnica)."}
+  - {termo: "usual", categoria: "referência indefinida", sugestao: "Defina a prática exigida de forma objetiva."}
+  - {termo: "suficiente", categoria: "quantidade sem critério", sugestao: "Defina a quantidade ou o valor mínimo."}
+  - {termo: "suficientes", categoria: "quantidade sem critério", sugestao: "Defina a quantidade ou o valor mínimo."}
+  - {termo: "satisfatório", categoria: "qualidade sem critério", sugestao: "Defina o critério de aceite."}
+  - {termo: "satisfatória", categoria: "qualidade sem critério", sugestao: "Defina o critério de aceite."}
+  - {termo: "apropriado", categoria: "qualidade sem critério", sugestao: "Substitua por um critério verificável."}
+  - {termo: "apropriada", categoria: "qualidade sem critério", sugestao: "Substitua por um critério verificável."}
+  - {termo: "ou similar", categoria: "equivalência indefinida", sugestao: "Defina os critérios de equivalência."}
+  - {termo: "ou equivalente", categoria: "equivalência indefinida", sugestao: "Defina os critérios de equivalência."}
+  - {termo: "melhores práticas", categoria: "referência indefinida", sugestao: "Cite o guia ou a norma de referência."}
+  - {termo: "devidamente", categoria: "qualidade sem critério", sugestao: "Diga como a exigência será comprovada."}
+  - {termo: "razoável", categoria: "quantidade sem critério", sugestao: "Defina o valor ou o limite."}
+  - {termo: "aceitável", categoria: "qualidade sem critério", sugestao: "Defina o critério de aceite."}

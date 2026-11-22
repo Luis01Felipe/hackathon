@@ -1,0 +1,27 @@
+# Segredos (RNF-06)
+.env
+.env.*
+!.env.example
+
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Dados de execução, cache do LLM/bSDD e saídas da CLI
+var/
+var-teste/
+.cache/
+saida/
+saida-demo/
+
+# Frontend (o build é gerado por `npm run build`)
+frontend/node_modules/
+frontend/dist/
+
+# Ferramentas locais
+.claude/
+.vscode/
+.idea/

@@ -1,0 +1,26 @@
+{
+  "name": "editalcheck-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "node scripts/copy-assets.mjs",
+    "dev": "vite",
+    "build": "node scripts/copy-assets.mjs && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@thatopen/components": "3.6.0",
+    "@thatopen/fragments": "3.6.1",
+    "camera-controls": "3.1.2",
+    "three": "0.187.0",
+    "web-ifc": "0.0.80"
+  },
+  "devDependencies": {
+    "@types/three": "0.187.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.8"
+  }
+}
