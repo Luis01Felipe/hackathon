@@ -92,21 +92,24 @@ Desenvolvimento do frontend com recarga automática: rode `npm run dev` em `fron
 
 ## Deploy no servidor (Docker + Traefik)
 
-O `Dockerfile` gera uma imagem única com a API e o frontend. O `docker-compose.yml` publica o app em **https://atena.construtivo.com/editalcheck/** pelo Traefik da rede `proxy`.
+O deploy segue o padrão dos serviços da Atena:
+- O `docker-compose.yml` monta o repositório em `/workspace` e roda o backend direto do código (`python -m editalcheck.entrypoints.cli servidor`).
+- A imagem (`py3_12-ifcopenshell.Dockerfile`) guarda só o ambiente: Python 3.12, as dependências travadas no `uv.lock` e o frontend compilado.
+- O Traefik da rede `proxy` publica o app em **https://atena.construtivo.com/editalcheck/**.
 
 Como o roteamento funciona:
-- O Traefik remove o prefixo `/editalcheck` (`stripprefix`) e repassa ao contêiner na porta 8000.
-- `/editalcheck` sem barra é redirecionado para `/editalcheck/`.
-- O frontend é compilado com `--base=/editalcheck/`, então assets, wasm, worker e chamadas à API ficam sob o prefixo.
+- O roteador aceita `Host(APP_DOMAIN) && PathPrefix(/editalcheck)`, remove o prefixo (`stripprefix`) e repassa à porta 8000.
+- O frontend é compilado com `--base=/editalcheck/`. Assets, wasm, worker e chamadas à API ficam sob o prefixo.
 - `EDITALCHECK_ROOT_PATH=/editalcheck` faz o `/docs` da API funcionar atrás do proxy.
 
-Primeira instalação, na pasta do projeto no servidor (`/mnt/dados/atena/projects/hackathon/`):
+Primeira instalação, no servidor:
 
-1. Clone o repositório e entre na pasta.
+1. Clone o repositório na pasta do projeto e entre nele.
 
 ```bash
-git clone https://github.com/Luis01Felipe/hackathon.git /mnt/dados/atena/projects/hackathon
 cd /mnt/dados/atena/projects/hackathon
+git clone https://github.com/Luis01Felipe/hackathon.git
+cd hackathon
 ```
 
 2. Crie o arquivo de variáveis e preencha a `GEMINI_API_KEY`.
@@ -115,13 +118,7 @@ cd /mnt/dados/atena/projects/hackathon
 cp .env.deploy.example .env.deploy && nano .env.deploy
 ```
 
-3. Crie as pastas de dados com o dono do contêiner (UID/GID 1000, ou os valores de `PUID`/`PGID`).
-
-```bash
-mkdir -p var .cache && sudo chown -R 1000:1000 var .cache
-```
-
-4. Suba o contêiner.
+3. Suba o contêiner.
 
 ```bash
 docker compose up -d --build
@@ -130,14 +127,17 @@ docker compose up -d --build
 Para atualizar depois de um merge:
 
 ```bash
-git pull && docker compose up -d --build
+git pull && docker compose up -d --build --force-recreate
 ```
+
+O `--force-recreate` reinicia o app com o backend novo, que vem do volume. O build só refaz o frontend ou as dependências quando eles mudam.
 
 Dicas:
 - **Logs:** `docker compose logs -f app`.
 - **Status:** `docker compose ps` mostra `healthy` quando `/api/config` responde.
-- **Dados:** projetos, relatórios e BCF ficam em `var/`. O cache do LLM e do bSDD fica em `.cache/`. As duas pastas sobrevivem a novos builds.
-- **Outro prefixo ou domínio:** troque `/editalcheck` nas labels, em `BASE_PATH` e em `EDITALCHECK_ROOT_PATH`. Para o domínio, defina `EDITALCHECK_DOMAIN` no ambiente ou num `.env` ao lado do compose (padrão: `atena.construtivo.com`).
+- **Dados:** projetos, relatórios e BCF ficam em `var/`. O cache do LLM e do bSDD fica em `.cache/`. As duas pastas ficam no repositório, fora do Git, e sobrevivem a novos builds. Como nos serviços da Atena, o contêiner roda como root, então não é preciso ajustar o dono das pastas.
+- **Domínio:** o padrão é `atena.construtivo.com`. Para usar outro, defina `APP_DOMAIN` no ambiente ou num `.env` ao lado do compose.
+- **Outro prefixo:** troque `/editalcheck` nas labels, em `BASE_PATH` e em `EDITALCHECK_ROOT_PATH`.
 
 ## API
 
