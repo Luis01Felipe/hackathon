@@ -1,7 +1,9 @@
-# EditalCheck — imagem de produção (frontend + API em um único contêiner).
+# EditalCheck: ambiente de execução (Python 3.12 + IfcOpenShell + frontend compilado).
 #
-# Estágio 1: compila o frontend (Vite + TypeScript) com o caminho base do proxy.
-# Estágio 2: instala o backend (Python 3.12 + uv) e serve API + frontend na porta 8000.
+# Mesmo padrão dos serviços da Atena: a imagem guarda só o ambiente.
+# O código do backend entra pelo volume ".:/workspace" do docker-compose.yml.
+#   - Mudou o backend: git pull e recrie o contêiner (o build usa o cache).
+#   - Mudou o frontend ou as dependências: o build refaz só a camada afetada.
 
 ########################### 1) FRONTEND
 FROM node:22-bookworm-slim AS frontend
@@ -19,8 +21,8 @@ RUN node scripts/copy-assets.mjs \
     && npx tsc --noEmit \
     && npx vite build --base="${BASE_PATH}"
 
-########################### 2) BACKEND + APP
-FROM python:3.12-slim-bookworm AS app
+########################### 2) PYTHON 3.12 + DEPENDÊNCIAS
+FROM python:3.12-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -35,31 +37,22 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir uv==0.11.32
 
-WORKDIR /app/backend
-# Dependências primeiro (camada em cache enquanto o uv.lock não mudar).
+# Dependências do backend, travadas pelo uv.lock (o pacote editalcheck vem do volume).
+WORKDIR /opt/editalcheck
 COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
-COPY backend/ ./
-RUN uv sync --frozen --no-dev
-
-WORKDIR /app
-COPY data/demo ./data/demo
-COPY --from=frontend /build/frontend/dist ./frontend/dist
-
-# Usuário sem privilégios. As pastas var/ e .cache/ recebem volumes do host.
-RUN useradd --uid 1000 --create-home --shell /usr/sbin/nologin editalcheck \
-    && mkdir -p /app/var /app/.cache \
-    && chown -R editalcheck:editalcheck /app/var /app/.cache
+# Frontend compilado. Fica fora de /workspace para o volume não escondê-lo.
+COPY --from=frontend /build/frontend/dist /opt/editalcheck/frontend
 
 ENV PATH="/opt/venv/bin:${PATH}" \
-    EDITALCHECK_DATA_DIR=/app/var \
-    EDITALCHECK_CACHE_DIR=/app/.cache
+    PYTHONPATH=/workspace/backend/src \
+    EDITALCHECK_FRONTEND_DIR=/opt/editalcheck/frontend
 
-USER editalcheck
+WORKDIR /workspace
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/config', timeout=4)"
 
-CMD ["editalcheck", "servidor", "--host", "0.0.0.0", "--porta", "8000"]
+CMD [ "python", "-m", "editalcheck.entrypoints.cli", "servidor", "--host", "0.0.0.0", "--porta", "8000" ]
