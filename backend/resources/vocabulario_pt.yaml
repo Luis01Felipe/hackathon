@@ -1,0 +1,35 @@
+# Vocabulário português → IFC usado pelo extrator por regras (modo sem LLM).
+# Também alimenta a busca no bSDD (termo em inglês).
+versao: "2026-11-22.1"
+classes:
+  IfcDoor: {pt: [porta, portas], en: door}
+  IfcWindow: {pt: [janela, janelas], en: window}
+  IfcWall: {pt: [parede, paredes], en: wall}
+  IfcSlab: {pt: [laje, lajes], en: slab}
+  IfcSpace: {pt: [ambiente, ambientes, sala, salas, espaço, espaços, compartimento, compartimentos], en: space}
+  IfcStair: {pt: [escada, escadas], en: stair}
+  IfcColumn: {pt: [pilar, pilares], en: column}
+  IfcBeam: {pt: [viga, vigas], en: beam}
+  IfcRailing: {pt: [guarda-corpo, guarda-corpos, corrimão, corrimãos], en: railing}
+  IfcRoof: {pt: [cobertura, telhado], en: roof}
+  IfcCovering: {pt: [revestimento, revestimentos, forro, forros], en: covering}
+  IfcFurniture: {pt: [mobiliário, móveis, carteira, carteiras], en: furniture}
+  IfcSanitaryTerminal: {pt: [louça sanitária, louças sanitárias, bacia sanitária, bacias sanitárias, lavatório, lavatórios], en: sanitary terminal}
+  IfcFireSuppressionTerminal: {pt: [extintor, extintores, hidrante, hidrantes, sprinkler, sprinklers], en: fire suppression terminal}
+propriedades:
+  FireRating: [resistência ao fogo, trrf, tempo requerido de resistência ao fogo]
+  IsExternal: [externa ou interna, externas ou internas, externo ou interno, externos ou internos]
+  ThermalTransmittance: [transmitância térmica, valor u, coeficiente de transmissão térmica]
+  AcousticRating: [desempenho acústico, isolamento acústico, classificação acústica]
+  LoadBearing: [função estrutural, se são estruturais, portante]
+  FireExit: [saída de emergência, saídas de emergência, rota de fuga, rotas de fuga]
+  HandicapAccessible: [acessível a pessoas com deficiência, acessibilidade]
+  NumberOfRiser: [número de degraus, número de espelhos, quantidade de degraus]
+  RiserHeight: [altura do espelho, altura dos espelhos, altura do degrau, altura dos degraus]
+  TreadLength: [profundidade do piso, profundidade dos pisos]
+  SelfClosing: [fechamento automático]
+  SmokeStop: [corta-fumaça]
+atributos: [Name, LongName, Description, ObjectType, Tag]
+sistemas_classificacao: [NBR 15965, Uniclass, OmniClass, MasterFormat, UniFormat]
+obrigacao: [deverá, deverão, deve, devem, obrigatório, obrigatória, obrigatórios, obrigatórias, exige-se, será exigido, será exigida]
+nao_modelo: [prazo, dias, custo, orçamento, pagamento, "r$", garantia, multa]

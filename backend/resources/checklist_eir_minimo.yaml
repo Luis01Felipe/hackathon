@@ -1,0 +1,69 @@
+# Checklist de itens mínimos do edital (análise B, RF-44).
+# Texto de autoria do time, INSPIRADO no conteúdo esperado de requisitos de
+# informação na ISO 19650. Não cita números de cláusula da norma.
+#
+# padroes_presente: regex (sobre texto minúsculo e sem acentos) que indicam o
+#   item com critério objetivo → "presente" no modo sem LLM.
+# palavras_chave: indicam o tema sem critério → "parcial" no modo sem LLM.
+versao: "2026-11-22.1"
+itens:
+  - id: CHK-01
+    item: "Formato e versão do IFC de entrega"
+    critico: true
+    descricao: "Exija o formato IFC e a versão do schema (ex.: IFC 4)."
+    padroes_presente: ['\bifc\s*-?\s*(2x3|4x3|4(\.\d)?)\b']
+    palavras_chave: [ifc, formato aberto]
+  - id: CHK-02
+    item: "Nível de informação exigido (LOIN ou equivalente) por fase"
+    critico: true
+    descricao: "Defina o nível de informação necessária por fase do projeto."
+    padroes_presente: ['\bloin\b.{0,120}\b(fase|etapa)', '\blod\s*\d{3}\b', 'nivel de informacao necessaria.{0,120}\b(fase|etapa)']
+    palavras_chave: [nível de informação, nível de detalhe, LOD, LOIN]
+  - id: CHK-03
+    item: "Sistema de classificação adotado"
+    critico: false
+    descricao: "Indique o sistema de classificação (ex.: ABNT NBR 15965, Uniclass)."
+    padroes_presente: ['nbr\s*15965', '\buniclass\b', '\bomniclass\b']
+    palavras_chave: [sistema de classificação, classificação dos elementos]
+  - id: CHK-04
+    item: "Convenção de nomenclatura de arquivos e elementos"
+    critico: false
+    descricao: "Defina o padrão de nomes de arquivos e de elementos."
+    padroes_presente: ['nomenclatura.{0,80}(padrao|formato|campo|codigo)\s*[:<\[]']
+    palavras_chave: [nomenclatura, nome dos arquivos]
+  - id: CHK-05
+    item: "Marcos e frequência de entrega do modelo"
+    critico: true
+    descricao: "Defina quando o modelo é entregue (marcos, prazos e frequência)."
+    padroes_presente: ['(entrega|entregue|entregues).{0,100}(\d+\s*\(?[a-z ]*\)?\s*dias|marco|mensal|quinzenal|semanal)']
+    palavras_chave: [marco de entrega, cronograma de entrega, entrega do modelo]
+  - id: CHK-06
+    item: "Ambiente comum de dados (CDE) e fluxo de aprovação"
+    critico: false
+    descricao: "Indique o CDE e o fluxo de revisão e aprovação."
+    padroes_presente: ['ambiente comum de dados', '\bcde\b']
+    palavras_chave: [plataforma de colaboração, fluxo de aprovação]
+  - id: CHK-07
+    item: "Propriedades obrigatórias por tipo de elemento"
+    critico: true
+    descricao: "Liste as propriedades exigidas por classe de elemento."
+    padroes_presente: ['\bpset_[a-z]+']
+    palavras_chave: [propriedade, propriedades]
+  - id: CHK-08
+    item: "Sistema de coordenadas e georreferenciamento"
+    critico: false
+    descricao: "Defina o sistema de referência (ex.: SIRGAS 2000 / UTM) e o ponto base."
+    padroes_presente: ['\bsirgas\b', '\butm\b', '\bepsg\b']
+    palavras_chave: [georreferenciamento, coordenadas]
+  - id: CHK-09
+    item: "Critérios de aceite e de verificação do modelo"
+    critico: true
+    descricao: "Defina como o modelo será verificado e aceito (ex.: arquivo IDS)."
+    padroes_presente: ['\bids\b', 'information delivery specification']
+    palavras_chave: [aceite, verificação do modelo, verificará]
+  - id: CHK-10
+    item: "Responsabilidades (papéis) pela informação"
+    critico: false
+    descricao: "Indique os papéis responsáveis pela informação (ex.: coordenador BIM)."
+    padroes_presente: ['coordenador bim', 'gestor da informacao', 'bim manager']
+    palavras_chave: [responsável técnico, responsabilidade]
