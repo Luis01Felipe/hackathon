@@ -188,5 +188,6 @@ O "extra" do Gemini é a cláusula 6.1.1 ("a fiscalização verificará o modelo
 ## Documentos
 
 - [Especificação técnica](docs/especificacao-tecnica.md)
+- [Especificação técnica v2 — atualização após a banca](docs/especificacao-tecnica-v2.md)
 - [Contrato da API](docs/api.md)
 - [Diário de decisões (JOURNAL)](docs/JOURNAL.md)
