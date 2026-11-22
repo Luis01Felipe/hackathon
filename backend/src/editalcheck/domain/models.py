@@ -110,9 +110,11 @@ class Topico:
     nivel: int
     pagina_inicio: int
     pagina_fim: int
-    texto: str  # texto com marcadores de página "[p. N]"
+    texto: str  # texto próprio do tópico, com marcadores de página "[p. N]"
     relevante_bim: bool = False
     resumo: str | None = None
+    pai_id: str | None = None  # tópico de nível superior (ex.: "5" para "5.1")
+    agrupador: bool = False  # só agrupa subtópicos; não tem texto próprio para verificar
 
 
 @dataclass(frozen=True)

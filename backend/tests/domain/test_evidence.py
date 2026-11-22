@@ -28,6 +28,14 @@ def test_trecho_literal_confere_com_quebra_de_linha() -> None:
     )
 
 
+def test_trecho_confere_quando_a_quebra_de_linha_muda_so_os_espacos() -> None:
+    pagina = "5.3.1 Todas as janelas deverão informar a transmitância, em W/\n(m²·K)."
+    assert trecho_confere("Todas as janelas deverão informar a transmitância, em W/(m²·K).", pagina)
+    assert not trecho_confere(
+        "Todas as janelas deverão informar a transmitância, em W/m²K.", pagina
+    )
+
+
 def test_trecho_parafraseado_nao_confere() -> None:
     assert not trecho_confere("As portas precisam ter resistência ao fogo informada.", PAGINA)
 

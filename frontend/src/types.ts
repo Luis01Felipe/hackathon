@@ -61,6 +61,10 @@ export interface Topico {
   texto: string;
   relevante_bim: boolean;
   resumo: string | null;
+  /** Tópico de nível superior (ex.: o "5" do "5.1"). */
+  pai_id: string | null;
+  /** Seção que só agrupa subtópicos: não tem texto próprio e não é enviada ao EIR. */
+  agrupador: boolean;
 }
 
 export interface Evidencia {

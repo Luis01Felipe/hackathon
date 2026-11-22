@@ -56,18 +56,9 @@ def compactar_espacos(texto: str) -> str:
     return _ESPACOS.sub(" ", desifenizar(texto)).strip()
 
 
-def trecho_confere(trecho: str, texto_pagina: str) -> bool:
-    """True se o trecho existe literalmente (após normalização) no texto.
-
-    Aceita reticências no trecho: cada segmento precisa aparecer, na ordem.
-    """
-    segmentos = [s for s in _RETICENCIAS.split(normalizar(trecho)) if s.strip()]
-    if not segmentos:
-        return False
-    texto = normalizar(texto_pagina)
+def _segmentos_em_ordem(segmentos: list[str], texto: str) -> bool:
     posicao = 0
     for segmento in segmentos:
-        segmento = segmento.strip()
         if len(segmento) < _TAMANHO_MINIMO_SEGMENTO and len(segmentos) > 1:
             return False
         indice = texto.find(segmento, posicao)
@@ -75,6 +66,24 @@ def trecho_confere(trecho: str, texto_pagina: str) -> bool:
             return False
         posicao = indice + len(segmento)
     return True
+
+
+def trecho_confere(trecho: str, texto_pagina: str) -> bool:
+    """True se o trecho existe literalmente (após normalização) no texto.
+
+    Aceita reticências no trecho: cada segmento precisa aparecer, na ordem.
+    Se não achar, compara de novo sem nenhum espaço: a quebra de linha do PDF
+    pode inserir ou tirar espaços (ex.: "W/\\n(m²·K)" × "W/(m²·K)"). Os
+    caracteres continuam precisando ser idênticos e na mesma ordem.
+    """
+    segmentos = [s.strip() for s in _RETICENCIAS.split(normalizar(trecho)) if s.strip()]
+    if not segmentos:
+        return False
+    texto = normalizar(texto_pagina)
+    if _segmentos_em_ordem(segmentos, texto):
+        return True
+    compactos = [_ESPACOS.sub("", s) for s in segmentos]
+    return _segmentos_em_ordem(compactos, _ESPACOS.sub("", texto))
 
 
 def conferir_evidencia(

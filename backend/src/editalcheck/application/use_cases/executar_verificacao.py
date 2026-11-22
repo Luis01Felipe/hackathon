@@ -227,35 +227,38 @@ class ExecutarVerificacao:
         candidatos = vagueness.detectar(
             projeto.edital, self._termos, projeto.topicos, [t.id for t in topicos]
         )
-        confirmadas: list[AmbiguidadeConfirmada] = (
-            self._com_reserva(
+        # As três consultas são independentes: rodam em paralelo (cada uma com reserva).
+        with ThreadPoolExecutor(3) as executor:
+            futuro_ambiguidade = executor.submit(
+                self._com_reserva,
                 "ambiguidade",
-                lambda: self._analisador.confirm_vagueness(candidatos),
+                lambda: self._analisador.confirm_vagueness(candidatos) if candidatos else [],
                 lambda: self._reserva.confirm_vagueness(candidatos),
                 avisos,
             )
-            if candidatos
-            else []
-        )
+            futuro_checklist = executor.submit(
+                self._com_reserva,
+                "checklist",
+                lambda: self._analisador.evaluate_checklist(projeto.edital, topicos, self._itens),
+                lambda: self._reserva.evaluate_checklist(projeto.edital, topicos, self._itens),
+                avisos,
+            )
+            futuro_contradicoes = executor.submit(
+                self._com_reserva,
+                "contradicoes",
+                lambda: self._analisador.find_contradictions(topicos),
+                lambda: self._reserva.find_contradictions(topicos),
+                avisos,
+            )
+            confirmadas: list[AmbiguidadeConfirmada] = futuro_ambiguidade.result()
+            brutos: list[ResultadoChecklist] = futuro_checklist.result()
+            contradicoes: list[Contradicao] = futuro_contradicoes.result()
 
-        brutos: list[ResultadoChecklist] = self._com_reserva(
-            "checklist",
-            lambda: self._analisador.evaluate_checklist(projeto.edital, topicos, self._itens),
-            lambda: self._reserva.evaluate_checklist(projeto.edital, topicos, self._itens),
-            avisos,
-        )
         checklist = checklist_domain.completar(
             checklist_domain.aplicar_salvaguarda(brutos, projeto.edital), self._itens
         )
         with self._trava:
             coletor.checklist = tuple(checklist)
-
-        contradicoes: list[Contradicao] = self._com_reserva(
-            "contradicoes",
-            lambda: self._analisador.find_contradictions(topicos),
-            lambda: self._reserva.find_contradictions(topicos),
-            avisos,
-        )
         conferidas = [
             c
             for c in contradicoes

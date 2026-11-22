@@ -66,6 +66,7 @@ class ImportarDocumentos:
 
         segmentados = topics.segmentar(edital)
         classificados, aviso = self._classificar(segmentados)
+        classificados = topics.propagar_relevancia(classificados)
         if aviso:
             avisos.append(aviso)
 

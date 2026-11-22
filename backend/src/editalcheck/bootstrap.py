@@ -47,7 +47,7 @@ class Container:
 
 def configurar_logs(nivel: str) -> None:
     logging.basicConfig(level=nivel, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    for ruidoso in ("httpx", "httpcore", "google_genai", "urllib3"):
+    for ruidoso in ("httpx", "httpx2", "httpcore", "google_genai", "urllib3"):
         logging.getLogger(ruidoso).setLevel(logging.WARNING)
 
 
@@ -107,6 +107,7 @@ def construir(settings: Settings) -> Container:
         BcfClientWriter(),
         itens_checklist,
         settings.modo_ia,
+        paralelismo=settings.llm_paralelismo,
     )
     return Container(
         settings=settings,
@@ -122,6 +123,7 @@ def construir(settings: Settings) -> Container:
             dicionario,
             vocabulario.classes,
             vocabulario.classes_en,
+            paralelismo=settings.llm_paralelismo,
         ),
         revisar_eir=RevisarEir(repositorio, validador, vocabulario.classes),
         gerar_ids=gerar_ids,

@@ -44,10 +44,19 @@ Cria um projeto com `data/demo/edital.pdf` e `data/demo/modelo.ifc`. Resposta ig
 ### `GET /api/projetos/{id}/topicos` → `Topico[]`
 
 ```json
-[{ "id": "TOP-05", "numero": "5.1", "titulo": "Portas", "nivel": 2, "pagina_inicio": 4,
-   "pagina_fim": 4, "texto": "[p. 4]\n5.1 Portas\n5.1.1 ...", "relevante_bim": true,
-   "resumo": "Requisitos de informação das portas" }]
+[{ "id": "TOP-05", "numero": "4", "titulo": "DA MODELAGEM DA INFORMAÇÃO (BIM)", "nivel": 1,
+   "pagina_inicio": 2, "pagina_fim": 2, "texto": "[p. 2]\n4 DA MODELAGEM DA INFORMAÇÃO (BIM)",
+   "relevante_bim": true, "resumo": null, "pai_id": null, "agrupador": true },
+ { "id": "TOP-06", "numero": "4.1", "titulo": "Formato e entrega do modelo", "nivel": 2,
+   "pagina_inicio": 2, "pagina_fim": 2, "texto": "[p. 2]\n4.1 Formato e entrega do modelo\n4.1.1 ...",
+   "relevante_bim": true, "resumo": "Exige IFC 4 e três marcos de entrega.",
+   "pai_id": "TOP-05", "agrupador": false }]
 ```
+
+- Os tópicos vêm na ordem do edital e formam uma árvore pelo `pai_id`.
+- `nivel` é a profundidade na árvore (1 = raiz). Dentro de um anexo ("ANEXO I – ..."), a numeração reinicia e os títulos ficam um nível abaixo do anexo.
+- `agrupador: true` indica uma seção sem texto próprio, que só agrupa subtópicos (ex.: "4" quando o texto começa em "4.1"). Ela pode ser implícita ("Seção 4") quando o edital não tem o título da seção.
+- Ao gerar o EIR, um agrupador enviado em `topicos` é trocado pelos subtópicos dele.
 
 ## EIR
 

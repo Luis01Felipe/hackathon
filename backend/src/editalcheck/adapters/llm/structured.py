@@ -84,7 +84,12 @@ class StructuredLlm:
         bruto = f"{versao}\n{self._cliente.modelo}\n{entrada}".encode()
         return hashlib.sha256(bruto).hexdigest()
 
-    def gerar(self, nome_prompt: str, schema: type[T], **variaveis) -> T:
+    def gerar(self, nome_prompt: str, schema: type[T], /, **variaveis) -> T:
+        """Renderiza o prompt com ``variaveis`` e devolve a saída validada em ``schema``.
+
+        ``nome_prompt`` e ``schema`` são só posicionais: nenhuma variável do
+        template pode colidir com eles.
+        """
         sistema, versao_sistema = self._prompts.renderizar("sistema")
         prompt, versao = self._prompts.renderizar(nome_prompt, **variaveis)
         versao_total = f"{nome_prompt}@{versao}+sistema@{versao_sistema}"

@@ -64,7 +64,7 @@ cd backend; uv sync
 cd frontend; npm install; npm run build
 ```
 
-3. (Opcional) Configure o Gemini. Copie `.env.example` para `.env` e preencha `GEMINI_API_KEY`.
+3. (Opcional) Configure o Gemini. Copie `.env.example` para `.env` e preencha `GEMINI_API_KEY`. Com o Gemini, `LLM_PARALELISMO` (padrão 6) define quantas chamadas rodam ao mesmo tempo. Reduza esse valor se a cota do seu plano recusar requisições.
 
 4. Suba a aplicação e abra http://127.0.0.1:8000:
 
@@ -106,28 +106,30 @@ Nenhum dado de cliente, contrato ou projeto do Construtivo é usado.
 
 ## Métricas medidas (seção 14.3)
 
-Medidas em 22/11/2026 com `uv run editalcheck demo`, **modo offline (regras, sem LLM)**, sobre os dados sintéticos:
+Medidas em 22/11/2026 com `uv run editalcheck demo`, sobre os dados sintéticos (edital de 5 páginas e IFC de 151 elementos):
 
-| Métrica | Resultado | Amostra |
-|---|---|---|
-| Recall de extração | 100% | 19 de 19 requisitos do gabarito |
-| Precisão de extração | 100% | 19 de 19 extraídos |
-| Citações conferidas (S2) | 100% | 19 de 19 |
-| IDS válido (S6) | sim | 8 especificações |
-| Acerto da checklist | 100% | 10 de 10 itens |
-| Precisão / recall de ambiguidade | 100% / 100% | 10 trechos vagos |
-| Tempo do pipeline (CLI) | menos de 1 s | edital de 5 páginas + IFC de 151 elementos |
+| Métrica | Modo offline (regras) | Gemini (`gemini-4-hydrogen`) | Amostra |
+|---|---|---|---|
+| Recall de extração | 100% (19/19) | 100% (19/19) | 19 requisitos do gabarito |
+| Precisão de extração | 100% (19/19) | 95% (19/20) | requisitos extraídos |
+| Citações conferidas (S2) | 100% (19/19) | 100% (20/20) | trechos citados |
+| IDS válido (S6) | sim (8 especificações) | sim (8 especificações) | — |
+| Acerto da checklist | 100% (10/10) | 80% (8/10) | 10 itens |
+| Precisão / recall de ambiguidade | 100% / 100% | 100% / 90% | 10 trechos vagos |
+| Tempo do pipeline (CLI) | menos de 1 s | 110 s sem cache; 33 s com cache parcial | — |
 
-> **Atenção:** estes números **não** representam editais reais. O edital sintético e as regras offline foram escritos pelo mesmo time, então o resultado é otimista por construção. Meça de novo com um edital público real e com o Gemini ligado antes de citar números no pitch. O tempo manual equivalente ainda precisa ser cronometrado pelo time.
+O "extra" do Gemini é a cláusula 6.1.1 ("a fiscalização verificará o modelo..."), registrada como requisito não verificável; o gabarito não a conta como requisito. Na checklist, o Gemini julgou o CHK-02 como "parcial" e o CHK-10 como "ausente"; o gabarito do time diz o contrário. São divergências de julgamento, que o time deve revisar.
+
+> **Atenção:** estes números **não** representam editais reais. O edital sintético e as regras offline foram escritos pelo mesmo time, então o resultado é otimista por construção. Meça de novo com um edital público real antes de citar números no pitch. O tempo manual equivalente ainda precisa ser cronometrado pelo time.
 
 ## Limites
 
 - Verifica só informação alfanumérica do modelo (IDS). Requisitos geométricos, de desempenho, prazo e custo saem como **verificação manual**.
 - Não faz OCR: PDFs escaneados são recusados com aviso.
-- A segmentação de tópicos depende de títulos numerados ("5 TÍTULO", "5.1 Título").
+- A segmentação de tópicos reconhece títulos numerados de nível 1 e 2 ("5 TÍTULO", "5.1 Título", "5 – TÍTULO") e anexos ("ANEXO I – ..."). Títulos sem número, como "CLÁUSULA PRIMEIRA" e "CAPÍTULO II", ainda não são reconhecidos.
 - O extrator por regras cobre o vocabulário de `backend/resources/vocabulario_pt.yaml`. Editais reais exigem o LLM.
 - A checklist e o léxico de termos vagos são autoria do time, inspirados na ISO 19650. Eles não substituem a análise jurídica do edital.
-- O adaptador do Gemini não foi testado contra a API real (não havia chave no ambiente). A camada de cache e reparo (S1) tem testes com cliente simulado.
+- Os adaptadores de IA têm testes com cliente simulado, que usam os prompts reais. O Gemini (`gemini-4-hydrogen`) já respondeu em execuções reais da demo.
 
 ## Licenças
 

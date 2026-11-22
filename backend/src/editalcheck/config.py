@@ -22,6 +22,7 @@ class Settings:
     gemini_model: str
     llm_ativo: bool
     llm_timeout_s: float
+    llm_paralelismo: int
     bsdd_ativo: bool
     bsdd_timeout_s: float
     pasta_dados: Path
@@ -49,6 +50,7 @@ def carregar(sobrescrever: dict[str, str] | None = None) -> Settings:
         gemini_model=env.get("GEMINI_MODEL", "gemini-4-hydrogen"),
         llm_ativo=chave is not None and _bool(env.get("LLM_ATIVO"), True),
         llm_timeout_s=float(env.get("LLM_TIMEOUT_S", "90")),
+        llm_paralelismo=int(env.get("LLM_PARALELISMO", "6")),
         bsdd_ativo=_bool(env.get("BSDD_ATIVO"), True),
         bsdd_timeout_s=float(env.get("BSDD_TIMEOUT_S", "5")),
         pasta_dados=dados,
