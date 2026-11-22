@@ -11,6 +11,15 @@ import type {
   Verificacao,
 } from "./types";
 
+/**
+ * Caminho base do app: "/" em desenvolvimento e "/editalcheck/" atrás do proxy
+ * (definido no build com `vite build --base`).
+ */
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+/** Prefixa um caminho da API ("/api/...") com o caminho base do app. */
+export const rota = (caminho: string): string => `${BASE}${caminho}`;
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -58,7 +67,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   }
   let response: Response;
   try {
-    response = await fetch(url, init);
+    response = await fetch(rota(url), init);
   } catch {
     throw new ApiError("Não foi possível conectar ao servidor do EditalCheck.", 0);
   }
@@ -106,10 +115,10 @@ export const api = {
 };
 
 export const urls = {
-  eirXlsx: (id: string) => `/api/projetos/${enc(id)}/eir.xlsx`,
-  idsXml: (id: string) => `/api/projetos/${enc(id)}/ids.xml`,
-  modeloIfc: (id: string) => `/api/projetos/${enc(id)}/modelo.ifc`,
-  relatorioJson: (vid: string) => `/api/verificacoes/${enc(vid)}/relatorio`,
-  relatorioHtml: (vid: string) => `/api/verificacoes/${enc(vid)}/relatorio.html`,
-  bcf: (vid: string) => `/api/verificacoes/${enc(vid)}/resultado.bcf`,
+  eirXlsx: (id: string) => rota(`/api/projetos/${enc(id)}/eir.xlsx`),
+  idsXml: (id: string) => rota(`/api/projetos/${enc(id)}/ids.xml`),
+  modeloIfc: (id: string) => rota(`/api/projetos/${enc(id)}/modelo.ifc`),
+  relatorioJson: (vid: string) => rota(`/api/verificacoes/${enc(vid)}/relatorio`),
+  relatorioHtml: (vid: string) => rota(`/api/verificacoes/${enc(vid)}/relatorio.html`),
+  bcf: (vid: string) => rota(`/api/verificacoes/${enc(vid)}/resultado.bcf`),
 };

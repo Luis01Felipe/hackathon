@@ -238,10 +238,20 @@ def servidor(
     host: Annotated[str, typer.Option(help="Endereço")] = "127.0.0.1",
     porta: Annotated[int, typer.Option(help="Porta")] = 8000,
 ) -> None:
-    """Sobe a API e o frontend em http://host:porta."""
+    """Sobe a API e o frontend em http://host:porta.
+
+    Atrás de um proxy que remove um prefixo (ex.: Traefik em /editalcheck), defina
+    EDITALCHECK_ROOT_PATH=/editalcheck para o /docs achar o /openapi.json.
+    """
     import uvicorn
 
-    uvicorn.run("editalcheck.entrypoints.api.main:criar_app", factory=True, host=host, port=porta)
+    uvicorn.run(
+        "editalcheck.entrypoints.api.main:criar_app",
+        factory=True,
+        host=host,
+        port=porta,
+        root_path=carregar().caminho_raiz,
+    )
 
 
 if __name__ == "__main__":
