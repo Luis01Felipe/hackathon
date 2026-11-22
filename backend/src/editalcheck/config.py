@@ -33,6 +33,7 @@ class Settings:
     pasta_frontend: Path
     limite_upload_mb: int
     nivel_log: str
+    caminho_raiz: str = ""  # prefixo do proxy (ex.: "/editalcheck"); vazio em desenvolvimento
 
     @property
     def modo_ia(self) -> str:
@@ -61,4 +62,5 @@ def carregar(sobrescrever: dict[str, str] | None = None) -> Settings:
         pasta_frontend=Path(env.get("EDITALCHECK_FRONTEND_DIR") or RAIZ_REPO / "frontend" / "dist"),
         limite_upload_mb=int(env.get("LIMITE_UPLOAD_MB", "200")),
         nivel_log=env.get("LOG_LEVEL", "INFO"),
+        caminho_raiz=env.get("EDITALCHECK_ROOT_PATH", "").strip().rstrip("/"),
     )

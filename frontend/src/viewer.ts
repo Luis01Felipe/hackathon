@@ -63,7 +63,7 @@ export class Viewer3D {
     components.get(OBC.Grids).create(world);
 
     const fragments = components.get(OBC.FragmentsManager);
-    fragments.init(new URL("fragments/worker.mjs", document.baseURI).href);
+    fragments.init(new URL(`${import.meta.env.BASE_URL}fragments/worker.mjs`, location.origin).href);
     world.camera.controls.addEventListener("update", () => {
       void fragments.core.update();
     });
@@ -92,7 +92,7 @@ export class Viewer3D {
     const loader = this.components.get(OBC.IfcLoader);
     await loader.setup({
       autoSetWasm: false,
-      wasm: { path: new URL("wasm/", document.baseURI).href, absolute: true },
+      wasm: { path: new URL(`${import.meta.env.BASE_URL}wasm/`, location.origin).href, absolute: true },
     });
     this.model = await loader.load(bytes, false, "modelo", {
       processData: { progressCallback: (p) => aoProgredir?.(p) },

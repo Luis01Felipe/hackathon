@@ -82,7 +82,7 @@ export function renderIds(ctx: Ctx): HTMLElement {
         h(
           "div",
           { class: "acoes" },
-          linkDownload("Baixar IDS (.ids)", ids.url || urls.idsXml(projeto.id)),
+          linkDownload("Baixar IDS (.ids)", urls.idsXml(projeto.id)),
           botao("Gerar novamente", () => void gerar(), "fantasma"),
           h("span", { class: "espaco" }),
           ids.valido ? botao("Executar verificação →", () => ctx.irPara(5), "primario") : null,

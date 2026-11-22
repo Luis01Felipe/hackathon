@@ -1,0 +1,32 @@
+# Git e ferramentas locais
+**/.git
+.claude/
+.vscode/
+.idea/
+
+# Segredos: as variáveis entram pelo env_file do docker-compose, nunca pela imagem
+.env
+.env.*
+
+# Python
+backend/.venv/
+**/__pycache__/
+**/.pytest_cache/
+**/.ruff_cache/
+
+# Node e artefatos gerados no build da imagem
+frontend/node_modules/
+frontend/dist/
+frontend/public/wasm/
+frontend/public/fragments/
+
+# Dados de execução e saídas locais (no servidor ficam em volumes)
+var/
+var-teste/
+.cache/
+saida/
+saida-demo/
+
+# Documentos de trabalho que não vão para a imagem
+docs/
+hackathon-instrucoes.md

@@ -1,0 +1,64 @@
+########################### NETWORKS
+networks:
+  proxy:
+    external: true
+
+########################### EXTENSION FIELDS
+x-common-keys-proxy: &common-keys-proxy
+  networks:
+    - proxy
+  security_opt:
+    - no-new-privileges:true
+  restart: unless-stopped
+
+########################### SERVICES
+# Servidor: /mnt/dados/atena/projects/hackathon/
+# Endpoint: https://atena.construtivo.com/editalcheck/
+name: editalcheck
+services:
+  app:
+    <<: *common-keys-proxy
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Precisa bater com o prefixo do Traefik abaixo (com barra no fim).
+        BASE_PATH: /editalcheck/
+    image: editalcheck:latest
+    container_name: editalcheck-app
+    # Dono das pastas var/ e .cache/ no host (veja o README, seção Deploy).
+    user: "${PUID:-1000}:${PGID:-1000}"
+    env_file:
+      - .env.deploy
+    environment:
+      - TZ=America/Sao_Paulo
+      - PYTHONUNBUFFERED=1
+      - EDITALCHECK_ROOT_PATH=/editalcheck
+    volumes:
+      # Projetos, relatórios e BCF gerados
+      - "./var:/app/var:rw"
+      # Cache das respostas do LLM e do bSDD (repetir a demo não gasta tokens)
+      - "./.cache:/app/.cache:rw"
+    labels:
+      - "traefik.enable=true"
+
+      # Força o Traefik a se comunicar pela rede correta
+      - "traefik.docker.network=proxy"
+
+      # Roteador principal: /editalcheck e tudo abaixo dele
+      - "traefik.http.routers.editalcheck.entrypoints=http,https"
+      - "traefik.http.routers.editalcheck.rule=Host(`${EDITALCHECK_DOMAIN:-atena.construtivo.com}`) && (Path(`/editalcheck`) || PathPrefix(`/editalcheck/`))"
+      - "traefik.http.routers.editalcheck.tls=true"
+      - "traefik.http.routers.editalcheck.middlewares=editalcheck-barra@docker,editalcheck-stripprefix@docker"
+      - "traefik.http.routers.editalcheck.service=editalcheck-app"
+
+      # /editalcheck → /editalcheck/ (endereço canônico do app)
+      - "traefik.http.middlewares.editalcheck-barra.redirectregex.regex=^(https?://[^/]+/editalcheck)$$"
+      - "traefik.http.middlewares.editalcheck-barra.redirectregex.replacement=$${1}/"
+      - "traefik.http.middlewares.editalcheck-barra.redirectregex.permanent=true"
+
+      # Remove o prefixo antes de repassar ao app (a API responde em /api/...)
+      - "traefik.http.middlewares.editalcheck-stripprefix.stripprefix.prefixes=/editalcheck"
+
+      # Porta interna do contêiner + loadbalancer
+      - "traefik.http.services.editalcheck-app.loadbalancer.server.port=8000"

@@ -90,6 +90,55 @@ cd backend; uv run pytest
 
 Desenvolvimento do frontend com recarga automática: rode `npm run dev` em `frontend/`. O Vite redireciona `/api` para `127.0.0.1:8000`.
 
+## Deploy no servidor (Docker + Traefik)
+
+O `Dockerfile` gera uma imagem única com a API e o frontend. O `docker-compose.yml` publica o app em **https://atena.construtivo.com/editalcheck/** pelo Traefik da rede `proxy`.
+
+Como o roteamento funciona:
+- O Traefik remove o prefixo `/editalcheck` (`stripprefix`) e repassa ao contêiner na porta 8000.
+- `/editalcheck` sem barra é redirecionado para `/editalcheck/`.
+- O frontend é compilado com `--base=/editalcheck/`, então assets, wasm, worker e chamadas à API ficam sob o prefixo.
+- `EDITALCHECK_ROOT_PATH=/editalcheck` faz o `/docs` da API funcionar atrás do proxy.
+
+Primeira instalação, na pasta do projeto no servidor (`/mnt/dados/atena/projects/hackathon/`):
+
+1. Clone o repositório e entre na pasta.
+
+```bash
+git clone https://github.com/Luis01Felipe/hackathon.git /mnt/dados/atena/projects/hackathon
+cd /mnt/dados/atena/projects/hackathon
+```
+
+2. Crie o arquivo de variáveis e preencha a `GEMINI_API_KEY`.
+
+```bash
+cp .env.deploy.example .env.deploy && nano .env.deploy
+```
+
+3. Crie as pastas de dados com o dono do contêiner (UID/GID 1000, ou os valores de `PUID`/`PGID`).
+
+```bash
+mkdir -p var .cache && sudo chown -R 1000:1000 var .cache
+```
+
+4. Suba o contêiner.
+
+```bash
+docker compose up -d --build
+```
+
+Para atualizar depois de um merge:
+
+```bash
+git pull && docker compose up -d --build
+```
+
+Dicas:
+- **Logs:** `docker compose logs -f app`.
+- **Status:** `docker compose ps` mostra `healthy` quando `/api/config` responde.
+- **Dados:** projetos, relatórios e BCF ficam em `var/`. O cache do LLM e do bSDD fica em `.cache/`. As duas pastas sobrevivem a novos builds.
+- **Outro prefixo ou domínio:** troque `/editalcheck` nas labels, em `BASE_PATH` e em `EDITALCHECK_ROOT_PATH`. Para o domínio, defina `EDITALCHECK_DOMAIN` no ambiente ou num `.env` ao lado do compose (padrão: `atena.construtivo.com`).
+
 ## API
 
 Contrato em [docs/api.md](docs/api.md). Documentação OpenAPI em `/docs` com o servidor no ar.

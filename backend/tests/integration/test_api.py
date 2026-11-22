@@ -70,6 +70,14 @@ def test_fluxo_completo_pela_api(container: Container, arquivos_demo) -> None:
     assert novos.status_code == 201 and novos.json()[0]["sugerido_por_lacuna"]
 
 
+def test_atras_de_proxy_com_prefixo_removido(container: Container) -> None:
+    """Traefik com StripPrefix: o app recebe /api/... e o servidor informa o root_path."""
+    cliente = TestClient(criar_app(container), root_path="/editalcheck")
+    assert cliente.get("/api/config").status_code == 200
+    assert cliente.get("/openapi.json").json()["servers"] == [{"url": "/editalcheck"}]
+    assert "/editalcheck/openapi.json" in cliente.get("/docs").text
+
+
 def test_erros_em_portugues(container: Container) -> None:
     cliente = TestClient(criar_app(container))
     resposta = cliente.get("/api/projetos/inexistente/topicos")
