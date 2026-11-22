@@ -43,6 +43,14 @@ Registro da jornada do time. Vira o slide de progresso do pitch.
   - a tela de tópicos ganhou seleção em cascata, estado parcial e recolher/expandir.
 - **Desempenho com LLM:** a verificação levou 114 s. As três consultas da análise B rodavam em sequência (53 s) e as 30 recomendações rodavam com 4 em paralelo (61 s). Agora a análise B roda em paralelo, e o paralelismo é configurável (`LLM_PARALELISMO`, padrão 6). Resultado medido: a verificação caiu para 60 s (análise B: 15 s; recomendações: 45 s), e o pipeline completo com o Gemini ficou em 110 s.
 - **S2 rígida demais com quebra de linha:** o Gemini citou "W/(m²·K)", mas o PDF tem "W/" e "(m²·K)" em linhas diferentes. A S2 descartou um requisito correto (janelas, `ThermalTransmittance`). A conferência agora tenta de novo ignorando só os espaços; os caracteres continuam precisando ser idênticos. Com isso, o recall do Gemini no gabarito subiu de 94,7% para 100% (19/19).
+- **BCF sem viewpoint por elemento (retorno do teste do time):** cada tópico tinha um único viewpoint, com todos os elementos selecionados e a câmera num ponto médio fixo. Para 5 portas espalhadas em 40 m, nenhuma ficava enquadrada. Agora cada tópico traz:
+  - uma visão geral, quando o apontamento tem mais de um elemento;
+  - um viewpoint por elemento, com só aquele elemento selecionado e pintado de vermelho, e a câmera enquadrando a caixa envolvente dele, calculada pelo IfcOpenShell;
+  - um comentário por viewpoint, com nome, classe, GlobalId e motivo da falha;
+  - o primeiro viewpoint com o nome `viewpoint.bcfv`, o padrão do BCF 2.0, para ferramentas mais antigas;
+  - prioridade, índice e rótulos no tópico.
+
+  Ainda não há imagens (snapshots) nos viewpoints.
 
 ### Pendências para o dia 23/11/2026
 
