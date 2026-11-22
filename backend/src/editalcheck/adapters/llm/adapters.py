@@ -53,7 +53,13 @@ def _evidencia(evidencia: EvidenciaLLM | None) -> Evidencia | None:
 def _vocabulario(contexto: ContextoVocabulario) -> str:
     linhas: list[str] = []
     for classe, propriedades in contexto.propriedades_por_classe:
-        linhas.append(f"- {classe}: " + ", ".join(propriedades[:LIMITE_PROPRIEDADES_POR_CLASSE]))
+        itens: list[str] = []
+        for chave in propriedades[:LIMITE_PROPRIEDADES_POR_CLASSE]:
+            pset, _, nome = chave.partition(".")
+            oficial = contexto.propriedade_oficial(pset, nome)
+            tipo = oficial.tipo_dado if oficial and oficial.tipo_dado else "?"
+            itens.append(f"{chave}: {tipo}")
+        linhas.append(f"- {classe}: " + ", ".join(itens))
     return "\n".join(linhas) or "(nenhuma)"
 
 
@@ -120,7 +126,7 @@ class LlmRequirementExtractor:
             "extracao_requisitos",
             ExtracaoLLM,
             topico=topico,
-            schema=contexto.schema,
+            schema_ifc=contexto.schema,
             classes=contexto.classes_modelo,
             vocabulario=_vocabulario(contexto),
             termos_bsdd=contexto.termos_bsdd,

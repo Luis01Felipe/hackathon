@@ -31,9 +31,22 @@ Registro da jornada do time. Vira o slide de progresso do pitch.
 - Métricas contra o gabarito sintético: recall 100% (19/19), precisão 100% (19/19), citações 100%, IDS válido, checklist 10/10, ambiguidades 10/10.
 - **Limite:** os números são otimistas porque o edital sintético e as regras são do mesmo time. É preciso medir de novo com edital público real e com o Gemini.
 
+### Primeira execução com o Gemini e refinos (tarde)
+
+- **Bug encontrado no log real:** a extração do EIR pelo Gemini falhava em todos os tópicos (`got multiple values for argument 'schema'`). O sistema caía nas regras sem que a tela deixasse isso evidente. Causa: a variável de template `schema` colidia com o parâmetro `schema` de `StructuredLlm.gerar`. Correção: parâmetros só posicionais e variável renomeada para `schema_ifc`. Um teste com os prompts reais e cliente simulado passou a cobrir os quatro adaptadores de IA.
+- **Defeito achado pelo novo teste:** o vocabulário enviado ao LLM não trazia o tipo de dado das propriedades, embora o prompt anunciasse "Pset.Propriedade: tipo".
+- **Tópicos em árvore:** a seção "4 DA MODELAGEM" era descartada por não ter texto próprio, e os itens 4.1–4.3 apareciam como filhos da seção 3 na tela. Agora:
+  - todo tópico tem `pai_id`;
+  - seções sem texto viram agrupadores;
+  - subtópico sem título de seção cria a seção implícita;
+  - "ANEXO I – ..." reinicia a numeração;
+  - a tela de tópicos ganhou seleção em cascata, estado parcial e recolher/expandir.
+- **Desempenho com LLM:** a verificação levou 114 s. As três consultas da análise B rodavam em sequência (53 s) e as 30 recomendações rodavam com 4 em paralelo (61 s). Agora a análise B roda em paralelo, e o paralelismo é configurável (`LLM_PARALELISMO`, padrão 6). Resultado medido: a verificação caiu para 60 s (análise B: 15 s; recomendações: 45 s), e o pipeline completo com o Gemini ficou em 110 s.
+- **S2 rígida demais com quebra de linha:** o Gemini citou "W/(m²·K)", mas o PDF tem "W/" e "(m²·K)" em linhas diferentes. A S2 descartou um requisito correto (janelas, `ThermalTransmittance`). A conferência agora tenta de novo ignorando só os espaços; os caracteres continuam precisando ser idênticos. Com isso, o recall do Gemini no gabarito subiu de 94,7% para 100% (19/19).
+
 ### Pendências para o dia 23/11/2026
 
-- [ ] Colocar a chave do Gemini no `.env` e rodar `uv run editalcheck demo` com o LLM.
+- [x] Colocar a chave do Gemini no `.env` e rodar `uv run editalcheck demo` com o LLM.
 - [ ] Testar com um edital público real e um IFC público.
 - [ ] Validar o IFC da demo no Validation Service da buildingSMART.
 - [ ] Cronometrar o tempo manual equivalente (1 tópico).

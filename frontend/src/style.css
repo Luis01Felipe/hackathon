@@ -690,6 +690,47 @@ textarea {
   margin-left: 66px;
 }
 
+.topico[hidden] {
+  display: none;
+}
+
+/* Seção que só agrupa subtópicos */
+.topico.agrupador {
+  background: var(--surface-2);
+}
+
+.topico-linha {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.topico-linha .topico-cabecalho {
+  flex: 1;
+}
+
+.topico-recolher,
+.topico-recolher-vazio {
+  flex: 0 0 20px;
+  width: 20px;
+}
+
+.topico-recolher {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 2px 0;
+  border-radius: 4px;
+}
+
+.topico-recolher:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
 .topico-cabecalho {
   display: flex;
   align-items: center;
@@ -723,13 +764,13 @@ textarea {
 }
 
 .topico-resumo {
-  margin: 4px 0 0 27px;
+  margin: 4px 0 0 53px;
   color: var(--muted);
   font-size: 0.88rem;
 }
 
 .topico .detalhes {
-  margin: 4px 0 0 27px;
+  margin: 4px 0 0 53px;
 }
 
 .texto-edital {

@@ -45,7 +45,9 @@ class GerarRelatorio:
         itens_checklist: Sequence[ItemChecklist],
         modo_ia: str,
         limite_recomendacoes_ia: int = 30,
+        paralelismo: int = MAX_PARALELO,
     ) -> None:
+        self._paralelismo = max(1, paralelismo)
         self._repo = repositorio
         self._recomendador = recomendador
         self._reserva = recomendador_reserva
@@ -82,7 +84,10 @@ class GerarRelatorio:
         self, apontamentos: Sequence[Apontamento]
     ) -> tuple[list[Apontamento], list[str]]:
         alvo = list(apontamentos[: self._limite])
-        with etapa("recomendacoes", total=len(alvo)), ThreadPoolExecutor(MAX_PARALELO) as executor:
+        with (
+            etapa("recomendacoes", total=len(alvo)),
+            ThreadPoolExecutor(self._paralelismo) as executor,
+        ):
             resultados = list(executor.map(self._recomendar, alvo))
         avisos: list[str] = []
         if any(not ok for _, ok in resultados):

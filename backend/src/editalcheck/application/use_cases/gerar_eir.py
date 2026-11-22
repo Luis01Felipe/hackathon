@@ -29,7 +29,7 @@ from editalcheck.domain.models import (
     TipoFaceta,
     Topico,
 )
-from editalcheck.domain.topics import paginas_do_topico
+from editalcheck.domain.topics import expandir_selecao, paginas_do_topico
 from editalcheck.domain.vocabulary import classificar_origem
 
 MAX_PARALELO = 4
@@ -194,6 +194,7 @@ class GerarEir:
         dicionario: DictionaryLookup | None,
         vocabulario_classes: Mapping[str, Sequence[str]],
         termos_bsdd_en: Mapping[str, str],
+        paralelismo: int = MAX_PARALELO,
     ) -> None:
         self._repo = repositorio
         self._validador = validador
@@ -202,6 +203,7 @@ class GerarEir:
         self._dicionario = dicionario
         self._vocab = vocabulario_classes
         self._en = termos_bsdd_en
+        self._paralelismo = max(1, paralelismo)
 
     def _termos_bsdd(self, topicos: Sequence[Topico], avisos: list[str]) -> list[TermoDicionario]:
         if self._dicionario is None:
@@ -215,7 +217,7 @@ class GerarEir:
         termos: dict[str, TermoDicionario] = {}
         with (
             etapa("bsdd.contexto", consultas=len(consultas)),
-            ThreadPoolExecutor(MAX_PARALELO) as executor,
+            ThreadPoolExecutor(self._paralelismo) as executor,
         ):
             for resultado in executor.map(self._dicionario.search, consultas):
                 for termo in resultado:
@@ -246,16 +248,18 @@ class GerarEir:
         projeto = self._repo.get(projeto_id)
         if projeto is None:
             raise NaoEncontradoError("Projeto não encontrado.")
-        topicos = [projeto.topico(t) for t in topico_ids]
-        if not topicos or any(t is None for t in topicos):
+        if not topico_ids or any(projeto.topico(t) is None for t in topico_ids):
             raise EntradaInvalidaError("Selecione ao menos um tópico válido.")
-        selecionados: list[Topico] = [t for t in topicos if t is not None]
+        # Agrupadores não têm texto próprio: entram os subtópicos deles.
+        selecionados = expandir_selecao(projeto.topicos, topico_ids)
+        if not selecionados:
+            raise EntradaInvalidaError("Os tópicos selecionados não têm texto para verificar.")
 
         avisos: list[str] = []
         contexto = self._validador.contexto(
             projeto, selecionados, self._vocab, self._termos_bsdd(selecionados, avisos)
         )
-        with ThreadPoolExecutor(MAX_PARALELO) as executor:
+        with ThreadPoolExecutor(self._paralelismo) as executor:
             extraidos = list(executor.map(lambda t: self._extrair(t, contexto), selecionados))
 
         aprovados: list[Requisito] = []
