@@ -167,6 +167,13 @@ class PyMuPdfLocalizador:
                 self._cache.popitem(last=False)[1][0].close()
             return self._cache[chave]
 
+    def esquecer(self, pdf: bytes) -> None:
+        chave = hashlib.sha256(pdf).hexdigest()
+        with self._trava:
+            guardado = self._cache.pop(chave, None)
+        if guardado is not None:
+            guardado[0].close()
+
     def trechos(self, pdf: bytes, evidencias: Sequence[Evidencia]) -> list[list[RegiaoPdf]]:
         documento, indexadas = self._documento(pdf)
         with self._trava:

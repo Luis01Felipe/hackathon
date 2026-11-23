@@ -1,9 +1,12 @@
 """Leitura do edital em PDF com PyMuPDF, texto por página (RF-01, RF-02, RF-03)."""
 
+import logging
+
 import pymupdf
 
 from editalcheck.domain.models import Edital, Pagina
 
+logger = logging.getLogger("editalcheck.pdf")
 CARACTERES_MINIMOS_POR_PAGINA = 40
 LIGADURAS = str.maketrans(
     {"ﬀ": "ff", "ﬁ": "fi", "ﬂ": "fl", "ﬃ": "ffi", "ﬄ": "ffl", "ﬅ": "st", "ﬆ": "st", "­": ""}
@@ -23,7 +26,10 @@ def paginas_do_pdf(conteudo: bytes) -> tuple[Pagina, ...]:
                 texto = pagina.get_text("text", sort=True).translate(LIGADURAS)
                 paginas.append(Pagina(numero=indice, texto=texto))
     except (pymupdf.FileDataError, RuntimeError, ValueError) as erro:
-        raise ValueError(f"Não foi possível ler o PDF: {erro}") from erro
+        logger.warning("PDF ilegível: %s", erro)
+        raise ValueError(
+            "Não foi possível ler o PDF. Confira se o arquivo não está corrompido nem protegido por senha."
+        ) from erro
     return tuple(paginas)
 
 

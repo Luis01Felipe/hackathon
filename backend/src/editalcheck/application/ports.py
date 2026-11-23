@@ -64,6 +64,10 @@ class EditalLocator(Protocol):
         """Faixas de cada tópico, do título até o início do tópico seguinte."""
         ...
 
+    def esquecer(self, pdf: bytes) -> None:
+        """Libera o que estiver em memória sobre este PDF (projeto apagado ou expirado)."""
+        ...
+
 
 class ElementGeometry(Protocol):
     def boxes(self, conteudo_ifc: bytes, global_ids: Sequence[str]) -> dict[str, CaixaEnvolvente]:

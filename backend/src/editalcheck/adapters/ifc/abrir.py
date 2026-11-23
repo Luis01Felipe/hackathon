@@ -6,6 +6,7 @@ geometria). O cache LRU, por hash do conteúdo, evita reler o IFC a cada etapa.
 
 import contextlib
 import hashlib
+import logging
 import os
 import tempfile
 from collections import OrderedDict
@@ -13,6 +14,7 @@ from threading import Lock
 
 import ifcopenshell
 
+logger = logging.getLogger("editalcheck.ifc")
 MAX_ARQUIVOS_EM_CACHE = 4
 _PASTA_MEMORIA = "/dev/shm"
 
@@ -32,7 +34,8 @@ def _de_texto(conteudo: bytes) -> ifcopenshell.file | None:
         return None
     try:
         return ifcopenshell.file.from_string(texto)
-    except Exception:  # IfcOpenShell lança vários tipos
+    except Exception as erro:  # IfcOpenShell lança vários tipos; tenta pelo arquivo temporário
+        logger.info("IFC não abriu a partir do texto (%s); tentando por arquivo temporário", erro)
         return None
 
 
@@ -45,7 +48,11 @@ def _de_arquivo_temporario(conteudo: bytes) -> ifcopenshell.file:
             arquivo.write(conteudo)
         return ifcopenshell.open(caminho)
     except Exception as erro:
-        raise IfcInvalidoError(f"Não foi possível ler o IFC: {erro}") from erro
+        logger.warning("IFC ilegível: %s", erro)
+        raise IfcInvalidoError(
+            "Não foi possível ler o arquivo IFC. Confira se ele abre num visualizador IFC "
+            "e se foi exportado em IFC2X3, IFC4 ou IFC4X3."
+        ) from erro
     finally:
         with contextlib.suppress(OSError):
             os.remove(caminho)

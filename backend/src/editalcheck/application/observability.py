@@ -28,4 +28,5 @@ def etapa(nome: str, **campos) -> Iterator[dict]:
 
 
 def agora() -> str:
-    return datetime.now().replace(microsecond=0).isoformat()
+    """Data e hora locais com o fuso (ex.: 2026-11-23T17:58:00-03:00)."""
+    return datetime.now().astimezone().replace(microsecond=0).isoformat()

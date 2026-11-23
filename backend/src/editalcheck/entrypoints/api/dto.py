@@ -1,8 +1,8 @@
 """DTOs Pydantic de entrada e conversão das entidades para JSON (contrato em docs/api.md)."""
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from editalcheck.domain.models import (
     ConsumoEtapa,
@@ -27,13 +27,50 @@ _RELATORIO = TypeAdapter(Relatorio)
 _VERIFICACAO = TypeAdapter(Verificacao)
 
 
+Id = Annotated[str, Field(min_length=1, max_length=64)]
+Nome = Annotated[str, Field(max_length=120)]
+
+
 class CriarEirRequest(BaseModel):
-    topicos: list[str] = Field(min_length=1)
+    topicos: list[Id] = Field(min_length=1, max_length=1000)
+
+
+class RestricaoRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tipo: Literal["valor", "enumeracao", "padrao", "intervalo"]
+    valores: list[Annotated[str, Field(max_length=200)]] = Field(
+        default_factory=list, max_length=50
+    )
+    minimo: float | None = None
+    maximo: float | None = None
+
+
+class CamposEdicaoRequest(BaseModel):
+    """Campos que a revisão humana pode editar num requisito (só os enviados mudam)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    descricao: str | None = Field(default=None, max_length=2000)
+    ifc_class: Nome | None = None
+    predefined_type: Nome | None = None
+    faceta: Nome | None = None
+    pset: Nome | None = None
+    propriedade: Nome | None = None
+    tipo_dado: Nome | None = None
+    restricao: RestricaoRequest | None = None
+    cardinalidade: Nome | None = None
+    verificavel_por_ids: bool | None = None
+    motivo_nao_verificavel: str | None = Field(default=None, max_length=500)
+    marcos: list[Id] | None = Field(default=None, max_length=20)
+    ambientes: list[Nome] | None = Field(default=None, max_length=50)
+    item_checagem: Nome | None = None
+    verificacao: Nome | None = None
 
 
 class PatchRequisitoRequest(BaseModel):
     acao: Literal["aprovar", "rejeitar", "reabrir", "editar"]
-    campos: dict[str, Any] | None = None
+    campos: CamposEdicaoRequest | None = None
 
 
 class AprovarTodosRequest(BaseModel):
@@ -41,12 +78,12 @@ class AprovarTodosRequest(BaseModel):
 
 
 class AdicionarLacunaRequest(BaseModel):
-    verificacao_id: str
-    apontamento_id: str
+    verificacao_id: Id
+    apontamento_id: Id
 
 
 class GerarIdsRequest(BaseModel):
-    marco_id: str | None = None
+    marco_id: str | None = Field(default=None, max_length=20)
     versao_ifc: Literal["IFC2X3", "IFC4", "IFC4X3_ADD2"] | None = None
 
 

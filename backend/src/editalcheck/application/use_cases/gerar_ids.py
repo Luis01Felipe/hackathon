@@ -8,6 +8,7 @@ XSD oficial e no ifctester antes de liberar a verificação.
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from editalcheck.application.concorrencia import por_projeto
 from editalcheck.application.errors import ConflitoError, EntradaInvalidaError, NaoEncontradoError
 from editalcheck.application.observability import etapa
 from editalcheck.application.ports import AuditLog, IdsBuilder, ProjectRepository
@@ -45,6 +46,7 @@ class GerarIds:
         self._construtor = construtor
         self._auditoria = auditoria
 
+    @por_projeto
     def executar(
         self, projeto_id: str, marco_id: str | None = None, versao: str | None = None
     ) -> ResultadoIds:

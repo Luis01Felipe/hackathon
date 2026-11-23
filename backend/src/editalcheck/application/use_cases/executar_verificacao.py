@@ -4,14 +4,16 @@ As análises são independentes: a falha de uma não impede as outras (seção 8
 Sem modelo IFC (modo "revisar edital"), só rodam a análise B e as lições.
 """
 
+import copy
 import time
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from threading import Lock
 
+from editalcheck.application.concorrencia import travas_projeto
 from editalcheck.application.consumo import ExecutorComContexto, em_projeto
-from editalcheck.application.errors import NaoEncontradoError
+from editalcheck.application.errors import ConflitoError, NaoEncontradoError
 from editalcheck.application.observability import agora, etapa, logger
 from editalcheck.application.ports import (
     AuditLog,
@@ -47,6 +49,19 @@ from editalcheck.domain.severity import ConfigSeveridade
 
 ANALISES = ("conformidade", "qualidade_edital", "licoes", "cobertura", "saude_modelo")
 SO_COM_MODELO = frozenset({"conformidade", "cobertura", "saude_modelo"})
+EM_ANDAMENTO = frozenset({StatusVerificacao.PENDENTE, StatusVerificacao.EXECUTANDO})
+# Mensagens para o usuário: o detalhe técnico do erro fica só no log do servidor.
+ERRO_GERAL = (
+    "A verificação falhou por um erro interno. Tente de novo; se persistir, avise o suporte."
+)
+ERRO_RELATORIO = (
+    "Não foi possível montar o relatório. O detalhe técnico ficou no registro do servidor."
+)
+PROJETO_REMOVIDO = "O projeto foi apagado ou expirou antes de a verificação terminar."
+
+
+class ProjetoRemovidoError(NaoEncontradoError):
+    """O projeto saiu do servidor (apagado ou expirado) com a verificação em andamento."""
 
 
 @dataclass
@@ -93,6 +108,8 @@ class ExecutarVerificacao:
         self._auditoria = auditoria
         self._geometria = geometria
         self._trava = Lock()
+        # Uma verificação por projeto de cada vez: cada uma abre várias threads e chamadas ao LLM.
+        self._em_andamento: dict[str, str] = {}
 
     # ------------------------------------------------------------------ ciclo de vida
 
@@ -100,9 +117,23 @@ class ExecutarVerificacao:
         projeto = self._repo.get(projeto_id)
         if projeto is None:
             raise NaoEncontradoError("Projeto não encontrado.")
-        verificacao = Verificacao(
-            id=uuid.uuid4().hex[:10],
-            projeto_id=projeto_id,
+        with self._trava:
+            anterior = self._em_andamento.get(projeto_id)
+            atual = self._repo.get_verificacao(anterior) if anterior else None
+            if atual is not None and atual.status in EM_ANDAMENTO:
+                raise ConflitoError(
+                    "Já existe uma verificação em andamento neste projeto. Aguarde ela terminar."
+                )
+            verificacao = self._nova(projeto)
+            self._em_andamento[projeto_id] = verificacao.id
+        self._repo.save_verificacao(verificacao)
+        return verificacao
+
+    def _nova(self, projeto: Projeto) -> Verificacao:
+        return Verificacao(
+            # 128 bits: o id da verificação é o que dá acesso ao relatório.
+            id=uuid.uuid4().hex,
+            projeto_id=projeto.id,
             status=StatusVerificacao.PENDENTE,
             progresso={
                 nome: "ignorada"
@@ -112,8 +143,6 @@ class ExecutarVerificacao:
             },
             iniciado_em=agora(),
         )
-        self._repo.save_verificacao(verificacao)
-        return verificacao
 
     def _progresso(self, verificacao: Verificacao, analise: str, estado: str) -> None:
         with self._trava:
@@ -121,22 +150,46 @@ class ExecutarVerificacao:
             self._repo.save_verificacao(verificacao)
 
     def executar(self, verificacao_id: str) -> Verificacao:
+        """Roda em segundo plano: nenhuma falha pode deixar a verificação parada em andamento."""
         verificacao = self._repo.get_verificacao(verificacao_id)
         if verificacao is None:
             raise NaoEncontradoError("Verificação não encontrada.")
-        with em_projeto(verificacao.projeto_id):
-            return self._executar(verificacao)
+        try:
+            with em_projeto(verificacao.projeto_id):
+                return self._executar(verificacao)
+        except Exception as erro:
+            removido = isinstance(erro, ProjetoRemovidoError)
+            if not removido:
+                logger.exception("Verificação %s falhou", verificacao.id)
+            verificacao.status = StatusVerificacao.FALHOU
+            verificacao.erro = PROJETO_REMOVIDO if removido else ERRO_GERAL
+            verificacao.concluido_em = agora()
+            self._repo.save_verificacao(verificacao)
+            return verificacao
+        finally:
+            with self._trava:
+                if self._em_andamento.get(verificacao.projeto_id) == verificacao.id:
+                    del self._em_andamento[verificacao.projeto_id]
+
+    def _exigir_projeto(self, projeto_id: str) -> None:
+        """O projeto continua no servidor? Se não, a verificação para sem gastar mais tokens."""
+        if self._repo.get(projeto_id) is None:
+            raise ProjetoRemovidoError(PROJETO_REMOVIDO)
 
     def _executar(self, verificacao: Verificacao) -> Verificacao:
-        projeto = self._repo.get(verificacao.projeto_id)
-        if projeto is None:
-            raise NaoEncontradoError("Projeto não encontrado.")
+        # Cópia: edições dos IR durante a verificação não misturam versões no relatório.
+        with travas_projeto.segurar(verificacao.projeto_id):
+            original = self._repo.get(verificacao.projeto_id)
+            if original is None:
+                raise ProjetoRemovidoError(PROJETO_REMOVIDO)
+            projeto = copy.deepcopy(original)
         verificacao.status = StatusVerificacao.EXECUTANDO
         self._repo.save_verificacao(verificacao)
         coletor = _Coletor()
         try:
             with etapa("verificacao", verificacao=verificacao.id, projeto=projeto.id):
                 self._rodar_analises(verificacao, projeto, coletor)
+                self._exigir_projeto(projeto.id)
                 self._progresso(verificacao, "relatorio", "executando")
                 relatorio = self._relatorio.montar(
                     verificacao.id,
@@ -156,10 +209,12 @@ class ExecutarVerificacao:
                 self._progresso(verificacao, "relatorio", "concluida")
             verificacao.status = StatusVerificacao.CONCLUIDA
             verificacao.avisos = relatorio.avisos
-        except Exception as erro:
+        except ProjetoRemovidoError:
+            raise
+        except Exception:
             logger.exception("Verificação %s falhou", verificacao.id)
             verificacao.status = StatusVerificacao.FALHOU
-            verificacao.erro = f"Falha ao montar o relatório: {erro}"
+            verificacao.erro = ERRO_RELATORIO
             verificacao.avisos = tuple(coletor.avisos)
         verificacao.concluido_em = agora()
         self._repo.save_verificacao(verificacao)
@@ -185,15 +240,22 @@ class ExecutarVerificacao:
             tarefas = {nome: f for nome, f in tarefas.items() if nome not in SO_COM_MODELO}
 
         def rodar(nome: str) -> None:
+            if self._repo.get(projeto.id) is None:
+                # Projeto apagado ou expirado: não começa a análise (nem chama o LLM).
+                self._progresso(verificacao, nome, "ignorada")
+                return
             self._progresso(verificacao, nome, "executando")
             inicio = time.perf_counter()
             try:
                 with etapa(f"analise.{nome}", verificacao=verificacao.id):
                     estado = tarefas[nome]() or "concluida"
-            except Exception as erro:
+            except Exception:
                 logger.exception("Análise %s falhou", nome)
                 with self._trava:
-                    coletor.avisos.append(f"A análise '{nome}' falhou: {erro}")
+                    coletor.avisos.append(
+                        f"A análise '{nome}' falhou; as demais seguiram. "
+                        "O detalhe técnico ficou no registro do servidor."
+                    )
                 estado = "falhou"
             with self._trava:
                 coletor.duracoes[nome] = round(time.perf_counter() - inicio, 3)

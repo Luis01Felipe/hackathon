@@ -5,6 +5,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import Any
 
+from editalcheck.application.concorrencia import por_projeto
 from editalcheck.application.errors import ConflitoError, EntradaInvalidaError, NaoEncontradoError
 from editalcheck.application.ports import ProjectRepository
 from editalcheck.application.use_cases.gerar_eir import ValidadorRequisitos
@@ -32,6 +33,7 @@ from editalcheck.domain.models import (
     TipoRestricao,
     TipoVerificacao,
 )
+from editalcheck.domain.restricoes import problema_no_padrao
 
 CAMPOS_EDITAVEIS = frozenset(
     {
@@ -70,7 +72,7 @@ def _restricao(valor: Any) -> Restricao | None:
     if not isinstance(valor, Mapping):
         raise EntradaInvalidaError("Restrição inválida.")
     try:
-        return Restricao(
+        restricao = Restricao(
             tipo=TipoRestricao(valor.get("tipo")),
             valores=tuple(str(v) for v in valor.get("valores") or ()),
             minimo=float(valor["minimo"]) if valor.get("minimo") is not None else None,
@@ -78,6 +80,11 @@ def _restricao(valor: Any) -> Restricao | None:
         )
     except (ValueError, TypeError) as erro:
         raise EntradaInvalidaError(f"Restrição inválida: {erro}") from erro
+    if restricao.tipo == TipoRestricao.PADRAO:
+        for padrao in restricao.valores:
+            if problema := problema_no_padrao(padrao):
+                raise EntradaInvalidaError(f"Restrição por padrão recusada: {problema}")
+    return restricao
 
 
 def _converter(campos: Mapping[str, Any]) -> dict[str, Any]:
@@ -159,15 +166,19 @@ class RevisarEir:
         self._salvar(projeto, eir, [novo if r.id == requisito_id else r for r in eir.requisitos])
         return novo
 
+    @por_projeto
     def aprovar(self, projeto_id: str, requisito_id: str) -> Requisito:
         return self._trocar(projeto_id, requisito_id, StatusRequisito.APROVADO)
 
+    @por_projeto
     def rejeitar(self, projeto_id: str, requisito_id: str) -> Requisito:
         return self._trocar(projeto_id, requisito_id, StatusRequisito.REJEITADO)
 
+    @por_projeto
     def reabrir(self, projeto_id: str, requisito_id: str) -> Requisito:
         return self._trocar(projeto_id, requisito_id, StatusRequisito.PROPOSTO)
 
+    @por_projeto
     def editar(self, projeto_id: str, requisito_id: str, campos: Mapping[str, Any]) -> Requisito:
         projeto, eir = self._projeto_com_eir(projeto_id)
         atual = eir.requisito(requisito_id)
@@ -189,6 +200,7 @@ class RevisarEir:
         )
         return validado
 
+    @por_projeto
     def aprovar_todos(self, projeto_id: str, somente_verificaveis: bool = True) -> Eir:
         projeto, eir = self._projeto_com_eir(projeto_id)
         requisitos = [
@@ -201,6 +213,7 @@ class RevisarEir:
         self._salvar(projeto, eir, requisitos)
         return projeto.eir  # type: ignore[return-value]
 
+    @por_projeto
     def adicionar_de_lacuna(self, projeto_id: str, apontamento: Apontamento) -> list[Requisito]:
         if apontamento.tipo != TipoApontamento.LACUNA_COBERTURA or not apontamento.classe_ifc:
             raise EntradaInvalidaError("Só apontamentos de lacuna de cobertura geram requisitos.")
@@ -245,6 +258,7 @@ class RevisarEir:
         self._salvar(projeto, eir, [*eir.requisitos, *novos])
         return novos
 
+    @por_projeto
     def definir_marcos(
         self, projeto_id: str, itens: Sequence[Mapping[str, Any]]
     ) -> tuple[MarcoEntrega, ...]:

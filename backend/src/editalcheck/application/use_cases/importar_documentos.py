@@ -62,7 +62,8 @@ class ImportarDocumentos:
             raise EntradaInvalidaError("O modelo precisa ser um arquivo IFC (STEP, ISO 10303-21).")
         validar_arquivos(licoes)
 
-        projeto_id = uuid.uuid4().hex[:10]
+        # 128 bits: o id do projeto é o que dá acesso aos documentos dele.
+        projeto_id = uuid.uuid4().hex
         with em_projeto(projeto_id):
             return self._importar(
                 projeto_id, pdf, nome_pdf, ifc, nome_ifc, licoes, schema_sem_modelo
