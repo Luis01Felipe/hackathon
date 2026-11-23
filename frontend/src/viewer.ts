@@ -7,12 +7,20 @@
 // do próprio SimpleRenderer deixa a tela em branco nos testes, então a tela recria o
 // visualizador num canvas novo a partir dos fragments já convertidos (sem converter
 // o IFC de novo).
+//
+// Descarte: o descarte espera as operações em andamento no worker terminarem. Descartar
+// o modelo com o CREATE_MODEL ainda rodando deixa mensagens do worker antigo na fila; ao
+// respondê-las, o Fragments abre um worker novo, que recebe uma resposta sem pedido
+// ("e is not a function" no worker). Por isso a carga é abortada pela API oficial
+// (FragmentsModels.abort) e o Components só é descartado quando tudo assentou.
 import * as OBC from "@thatopen/components";
 import * as FRAGS from "@thatopen/fragments";
 import * as THREE from "three";
 import type { EstadoElemento, EstadoElementoItem } from "./types";
 
 type Mundo = OBC.SimpleWorld<OBC.SimpleScene, OBC.OrthoPerspectiveCamera, OBC.SimpleRenderer>;
+
+const MODELO_ID = "modelo";
 
 /** Limite da densidade de pixels: telas 4K com escala 200% quadruplicam a memória de vídeo. */
 const PIXEL_RATIO_MAXIMO = 1.5;
@@ -36,6 +44,41 @@ function material(cor: THREE.Color, opacidade = 1): FRAGS.MaterialDefinition {
 export interface EscolhaElemento {
   globalId: string | null;
   localId: number;
+}
+
+/** O visualizador foi descartado antes de a carga terminar. Não é falha: a tela saiu. */
+export class CargaCancelada extends Error {
+  constructor() {
+    super("Carga do modelo 3D cancelada: o visualizador foi descartado.");
+    this.name = "CargaCancelada";
+  }
+}
+
+/** Cancelamento esperado (nosso ou do Fragments), que não deve ir para o console. */
+export function foiCancelamento(erro: unknown): boolean {
+  if (erro instanceof CargaCancelada) return true;
+  return erro instanceof Error && erro.name === "LoadAbortedError";
+}
+
+/**
+ * Converte o IFC em fragments na thread principal (web-ifc em wasm). Usa as mesmas
+ * configurações do OBC.IfcLoader, mas não depende de um visualizador: a conversão
+ * sobrevive ao descarte da tela e pode ser reaproveitada.
+ */
+export async function converterIfc(fonte: string | File, aoProgredir?: (fracao: number) => void): Promise<Uint8Array> {
+  const bytes = await lerIfc(fonte);
+  const importador = new FRAGS.IfcImporter();
+  importador.wasm.path = new URL(`${import.meta.env.BASE_URL}wasm/`, location.origin).href;
+  importador.wasm.absolute = true;
+  importador.webIfcSettings = { COORDINATE_TO_ORIGIN: true };
+  return importador.process({ bytes, progressCallback: (p) => aoProgredir?.(p) });
+}
+
+async function lerIfc(fonte: string | File): Promise<Uint8Array> {
+  if (typeof fonte !== "string") return new Uint8Array(await fonte.arrayBuffer());
+  const resposta = await fetch(fonte);
+  if (!resposta.ok) throw new Error(`Não foi possível baixar o IFC (HTTP ${resposta.status}).`);
+  return new Uint8Array(await resposta.arrayBuffer());
 }
 
 /** Falha antes de criar o mundo 3D: sem WebGL 2 o three.js não desenha nada. */
@@ -66,6 +109,8 @@ export class Viewer3D {
   private inicioToque = { x: 0, y: 0 };
   private descartado = false;
   private contexto = true;
+  private carregando = false;
+  private readonly pendentes = new Set<Promise<unknown>>();
 
   private constructor(
     private readonly components: OBC.Components,
@@ -91,7 +136,9 @@ export class Viewer3D {
 
     const fragments = components.get(OBC.FragmentsManager);
     fragments.init(new URL(`${import.meta.env.BASE_URL}fragments/worker.mjs`, location.origin).href);
+    const viewer = new Viewer3D(components, world, fragments);
     world.camera.controls.addEventListener("update", () => {
+      if (viewer.descartado || !fragments.initialized) return;
       void fragments.core.update();
     });
     fragments.list.onItemSet.add(({ value: model }) => {
@@ -107,7 +154,6 @@ export class Viewer3D {
       mat.polygonOffsetFactor = Math.random();
     });
 
-    const viewer = new Viewer3D(components, world, fragments);
     viewer.ligarCliques();
     world.renderer.three.domElement.addEventListener("webglcontextlost", () => viewer.aoPerderContexto());
     return viewer;
@@ -138,54 +184,40 @@ export class Viewer3D {
     this.onContextoPerdido?.();
   }
 
-  /** Fragments já convertidos, para recriar o visualizador sem converter o IFC de novo. */
-  async exportarFragmentos(): Promise<ArrayBuffer | null> {
-    if (!this.model || this.descartado) return null;
-    return this.model.getBuffer(false);
-  }
-
-  /** Carrega fragments exportados por outro visualizador (recuperação rápida). */
-  async carregarFragmentos(buffer: ArrayBuffer): Promise<void> {
-    // O worker recebe o buffer por transferência e o esvazia: manda uma cópia.
-    this.model = await this.fragments.core.load(buffer.slice(0), { modelId: "modelo" });
-    await this.prepararModelo();
-  }
-
-  /** Carrega o IFC de uma URL ou de um arquivo já escolhido no navegador (sem novo download). */
-  async carregarIfc(fonte: string | File, aoProgredir?: (fracao: number) => void): Promise<void> {
-    let bytes: Uint8Array;
-    if (typeof fonte === "string") {
-      const resposta = await fetch(fonte);
-      if (!resposta.ok) throw new Error(`Não foi possível baixar o IFC (HTTP ${resposta.status}).`);
-      bytes = new Uint8Array(await resposta.arrayBuffer());
-    } else {
-      bytes = new Uint8Array(await fonte.arrayBuffer());
+  /**
+   * Carrega fragments já convertidos (de converterIfc ou de outro visualizador).
+   * Rejeita com CargaCancelada se o visualizador for descartado antes de terminar.
+   */
+  async carregarFragmentos(buffer: ArrayBuffer | Uint8Array): Promise<void> {
+    if (this.descartado) throw new CargaCancelada();
+    this.carregando = true;
+    try {
+      // O worker recebe o buffer por transferência e o esvazia: manda uma cópia.
+      const copia = buffer.slice(0);
+      this.model = await this.acompanhar(null, () => this.fragments.core.load(copia, { modelId: MODELO_ID }));
+    } finally {
+      this.carregando = false;
     }
-    const loader = this.components.get(OBC.IfcLoader);
-    await loader.setup({
-      autoSetWasm: false,
-      wasm: { path: new URL(`${import.meta.env.BASE_URL}wasm/`, location.origin).href, absolute: true },
-    });
-    this.model = await loader.load(bytes, false, "modelo", {
-      processData: { progressCallback: (p) => aoProgredir?.(p) },
-    });
-    await this.prepararModelo();
+    if (this.descartado || !this.model) throw new CargaCancelada();
+    await this.acompanhar(undefined, () => this.prepararModelo());
   }
 
   private async prepararModelo(): Promise<void> {
-    if (this.descartado || !this.model) return;
-    this.todos = await this.model.getItemsIdsWithGeometry();
-    const categorias = await this.model.getItemsOfCategories([/^IFCSPACE$/i]);
+    const model = this.model;
+    if (this.descartado || !model) return;
+    this.todos = await model.getItemsIdsWithGeometry();
+    const categorias = await model.getItemsOfCategories([/^IFCSPACE$/i]);
     for (const ids of Object.values(categorias)) ids.forEach((id) => this.espacos.add(id));
     await this.world.camera.fitToItems();
   }
 
   /** Liga cada GlobalId ao localId do fragments. Usa o step_id como reserva. */
   async mapearElementos(itens: { global_id: string; step_id: number | null }[]): Promise<void> {
-    if (!this.model) return;
+    const model = this.model;
+    if (!model) return;
     const pendentes = itens.filter((i) => !this.guidParaLocal.has(i.global_id));
     if (!pendentes.length) return;
-    const locais = await this.model.getLocalIdsByGuids(pendentes.map((i) => i.global_id));
+    const locais = await this.acompanhar([], () => model.getLocalIdsByGuids(pendentes.map((i) => i.global_id)));
     pendentes.forEach((item, indice) => {
       const local = locais[indice] ?? item.step_id;
       if (local === null || local === undefined) return;
@@ -205,14 +237,15 @@ export class Viewer3D {
   }
 
   async focar(globalIds: string[]): Promise<number> {
-    if (!this.model) return 0;
+    const model = this.model;
+    if (!model) return 0;
     const ids = globalIds
       .map((g) => this.guidParaLocal.get(g))
       .filter((id): id is number => id !== undefined);
     this.selecionados = ids;
     await this.pintar();
     if (ids.length) {
-      await this.world.camera.fitToItems({ [this.model.modelId]: new Set(ids) });
+      await this.acompanhar(undefined, () => this.world.camera.fitToItems({ [model.modelId]: new Set(ids) }));
     }
     return ids.length;
   }
@@ -230,21 +263,25 @@ export class Viewer3D {
       .map((g) => this.guidParaLocal.get(g))
       .filter((id): id is number => id !== undefined);
     if (!ids.length) return 0;
-    await model.setVisible(undefined, false);
-    await model.setVisible(ids, true);
+    await this.acompanhar(undefined, async () => {
+      await model.setVisible(undefined, false);
+      await model.setVisible(ids, true);
+    });
     this.isolado = true;
     this.selecionados = ids;
     await this.pintar();
-    await this.world.camera.fitToItems({ [model.modelId]: new Set(ids) });
+    await this.acompanhar(undefined, () => this.world.camera.fitToItems({ [model.modelId]: new Set(ids) }));
     return ids.length;
   }
 
   async mostrarTudo(): Promise<void> {
     const model = this.model;
     if (!model || !this.isolado) return;
-    await model.resetVisible();
+    await this.acompanhar(undefined, async () => {
+      await model.resetVisible();
+      await this.fragments.core.update(true);
+    });
     this.isolado = false;
-    await this.fragments.core.update(true);
   }
 
   get estaIsolado(): boolean {
@@ -253,7 +290,7 @@ export class Viewer3D {
 
   async enquadrarTudo(): Promise<void> {
     if (!this.model) return;
-    await this.world.camera.fitToItems();
+    await this.acompanhar(undefined, () => this.world.camera.fitToItems());
   }
 
   async alternarTransparencia(): Promise<boolean> {
@@ -266,14 +303,40 @@ export class Viewer3D {
     return this.localParaGuid.get(localId) ?? null;
   }
 
+  /**
+   * Descarta o visualizador sem deixar mensagens órfãs no worker: aborta a carga em
+   * andamento e só libera o Components quando as operações pendentes terminarem.
+   */
   dispose(): void {
+    if (this.descartado) return;
     this.descartado = true;
     this.onPick = null;
     this.onContextoPerdido = null;
-    this.components.dispose();
+    if (this.world.renderer) this.world.renderer.enabled = false;
+    if (this.carregando) this.fragments.core.abort(MODELO_ID);
+    void Promise.allSettled([...this.pendentes]).then(() => this.components.dispose());
+  }
+
+  /**
+   * Roda uma operação no worker e a registra até o fim, para o descarte esperar por ela.
+   * Depois do descarte não começa nada novo e devolve o valor padrão.
+   */
+  private async acompanhar<T>(padrao: T, operacao: () => Promise<T>): Promise<T> {
+    if (this.descartado) return padrao;
+    const promessa = operacao();
+    this.pendentes.add(promessa);
+    try {
+      return await promessa;
+    } finally {
+      this.pendentes.delete(promessa);
+    }
   }
 
   private async pintar(): Promise<void> {
+    await this.acompanhar(undefined, () => this.aplicarCores());
+  }
+
+  private async aplicarCores(): Promise<void> {
     const model = this.model;
     if (!model) return;
     await model.resetHighlight();
@@ -328,7 +391,8 @@ export class Viewer3D {
     const model = this.model;
     if (!model || !this.onPick) return;
     const dados = { camera: this.world.camera.three, mouse: new THREE.Vector2(x, y), dom: canvas };
-    const acertos = ((await model.raycastAll(dados)) ?? []).sort((a, b) => a.distance - b.distance);
+    const brutos = await this.acompanhar(null, () => model.raycastAll(dados));
+    const acertos = (brutos ?? []).sort((a, b) => a.distance - b.distance);
     if (!acertos.length) {
       this.onPick(null);
       return;
@@ -338,7 +402,7 @@ export class Viewer3D {
     const alvo = comEstado ?? (this.transparencia ? acertos.find((a) => this.estados.has(a.localId)) : undefined) ?? naoEspaco ?? acertos[0];
     let guid = this.localParaGuid.get(alvo.localId) ?? null;
     if (!guid) {
-      const [encontrado] = await model.getGuidsByLocalIds([alvo.localId]);
+      const [encontrado] = await this.acompanhar([], () => model.getGuidsByLocalIds([alvo.localId]));
       guid = encontrado ?? null;
       if (guid) {
         this.localParaGuid.set(alvo.localId, guid);
@@ -347,6 +411,6 @@ export class Viewer3D {
     }
     this.selecionados = [alvo.localId];
     await this.pintar();
-    this.onPick({ globalId: guid, localId: alvo.localId });
+    this.onPick?.({ globalId: guid, localId: alvo.localId });
   }
 }
