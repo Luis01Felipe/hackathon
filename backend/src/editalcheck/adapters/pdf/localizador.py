@@ -7,6 +7,10 @@ caixas das palavras encontradas são unidas por linha.
 
 As regiões saem em frações da página (0 a 1, origem no canto superior
 esquerdo), prontas para o visualizador do navegador e para o PDF anotado.
+
+Em folhas com duas páginas impressas lado a lado, as palavras seguem a ordem
+de leitura por coluna (ver ``colunas``) e a faixa de um tópico é desenhada
+coluna a coluna.
 """
 
 import hashlib
@@ -19,6 +23,7 @@ from threading import Lock
 
 import pymupdf
 
+from editalcheck.adapters.pdf.colunas import colunas, indice_da_coluna
 from editalcheck.domain.models import Evidencia, FonteEvidencia, RegiaoPdf, Topico
 
 _MARCADOR_PAGINA = re.compile(r"^\[p\.\s*\d+\]$")
@@ -45,25 +50,39 @@ class _Palavra:
     rect: pymupdf.Rect
     bloco: int
     linha: int
+    coluna: int
 
 
-def _palavras(pagina: pymupdf.Page) -> list[_Palavra]:
-    """Palavras da página em ordem de leitura; junta hifenização de fim de linha."""
-    brutas = pagina.get_text("words", sort=True)
+@dataclass(frozen=True)
+class _Posicao:
+    """Ponto de leitura no documento: página (índice), coluna e altura."""
+
+    pagina: int
+    coluna: int
+    y: float
+
+
+def _palavras(pagina: pymupdf.Page, regioes: tuple[pymupdf.Rect, ...]) -> list[_Palavra]:
+    """Palavras em ordem de leitura (coluna a coluna); junta hifenização de fim de linha."""
+    brutas = [
+        (indice_da_coluna(regioes, pymupdf.Rect(p[:4])), p)
+        for p in pagina.get_text("words", sort=True)
+    ]
+    brutas.sort(key=lambda par: par[0])  # estável: mantém a ordem dentro da coluna
     palavras: list[_Palavra] = []
     pendente: tuple[str, pymupdf.Rect] | None = None
-    for x0, y0, x1, y1, texto, bloco, linha, _ in brutas:
+    for coluna, (x0, y0, x1, y1, texto, bloco, linha, _) in brutas:
         rect = pymupdf.Rect(x0, y0, x1, y1)
         if pendente is not None:
             texto = pendente[0] + texto
-            palavras.append(_Palavra(_token(texto), pendente[1], bloco, linha))
+            palavras.append(_Palavra(_token(texto), pendente[1], bloco, linha, coluna))
             pendente = None
         if texto.endswith("-") and len(texto) > 2 and texto[-2].isalpha():
             pendente = (texto[:-1], rect)
             continue
         token = _token(texto)
         if token:
-            palavras.append(_Palavra(token, rect, bloco, linha))
+            palavras.append(_Palavra(token, rect, bloco, linha, coluna))
     return palavras
 
 
@@ -74,15 +93,17 @@ class PaginaIndexada:
     palavras: list[_Palavra]
     tokens: list[str]
     posicoes: dict[str, list[int]]
+    colunas: int
 
     @staticmethod
     def de(pagina: pymupdf.Page) -> "PaginaIndexada":
-        palavras = _palavras(pagina)
+        regioes = colunas(pagina)
+        palavras = _palavras(pagina, regioes)
         tokens_pagina = [p.token for p in palavras]
         posicoes: dict[str, list[int]] = {}
         for indice, token in enumerate(tokens_pagina):
             posicoes.setdefault(token, []).append(indice)
-        return PaginaIndexada(palavras, tokens_pagina, posicoes)
+        return PaginaIndexada(palavras, tokens_pagina, posicoes, len(regioes))
 
 
 class PaginasIndexadas:
@@ -211,8 +232,8 @@ class PyMuPdfLocalizador:
 
     def _inicio(
         self, documento: pymupdf.Document, indexadas: PaginasIndexadas, topico: Topico
-    ) -> tuple[int, float] | None:
-        """(índice da página, y do topo) da primeira linha do tópico."""
+    ) -> _Posicao | None:
+        """Onde começa a primeira linha do tópico."""
         if not 1 <= topico.pagina_inicio <= documento.page_count:
             return None
         pagina = documento[topico.pagina_inicio - 1]
@@ -220,40 +241,60 @@ class PyMuPdfLocalizador:
         achadas = _procurar(sequencia, indexadas.de(pagina))
         if not achadas:
             return None
-        return pagina.number, min(p.rect.y0 for p in achadas)
+        return _Posicao(pagina.number, achadas[0].coluna, min(p.rect.y0 for p in achadas))
 
     def _faixas(
         self,
         documento: pymupdf.Document,
         indexadas: PaginasIndexadas,
         topico: Topico,
-        inicio: tuple[int, float] | None,
-        fim: tuple[int, float] | None,
+        inicio: _Posicao | None,
+        fim: _Posicao | None,
     ) -> list[RegiaoPdf]:
-        primeira = inicio[0] if inicio else topico.pagina_inicio - 1
+        primeira = inicio.pagina if inicio else topico.pagina_inicio - 1
         ultima = topico.pagina_fim - 1
-        if fim is not None:
-            ultima = min(ultima, fim[0]) if fim[0] >= primeira else ultima
+        if fim is not None and fim.pagina >= primeira:
+            ultima = min(ultima, fim.pagina)
         faixas: list[RegiaoPdf] = []
         for indice in range(max(0, primeira), min(documento.page_count - 1, ultima) + 1):
             pagina = documento[indice]
-            altura = pagina.rect.height
-            palavras = [
-                p
-                for p in indexadas.de(pagina).palavras
-                if ZONA_CABECALHO * altura < p.rect.y0 < ZONA_RODAPE * altura
-            ]
-            if not palavras:
-                continue
-            x0 = min(p.rect.x0 for p in palavras)
-            x1 = max(p.rect.x1 for p in palavras)
-            topo = min(p.rect.y0 for p in palavras)
-            base = max(p.rect.y1 for p in palavras)
-            if inicio and indice == inicio[0]:
-                topo = inicio[1]
-            if fim and indice == fim[0]:
-                base = fim[1]
-            if base - topo < 2:
-                continue
-            faixas.append(_normalizar(pagina, pymupdf.Rect(x0 - 3, topo - 2, x1 + 3, base)))
+            indexada = indexadas.de(pagina)
+            for coluna in range(indexada.colunas):
+                if inicio and (indice, coluna) < (inicio.pagina, inicio.coluna):
+                    continue
+                if fim and (indice, coluna) > (fim.pagina, fim.coluna):
+                    break
+                faixa = self._faixa(pagina, indexada, coluna, inicio, fim)
+                if faixa is not None:
+                    faixas.append(faixa)
         return faixas
+
+    @staticmethod
+    def _faixa(
+        pagina: pymupdf.Page,
+        indexada: PaginaIndexada,
+        coluna: int,
+        inicio: _Posicao | None,
+        fim: _Posicao | None,
+    ) -> RegiaoPdf | None:
+        """Faixa de uma coluna, cortada no começo e no fim do tópico."""
+        altura = pagina.rect.height
+        palavras = [
+            p
+            for p in indexada.palavras
+            if p.coluna == coluna and ZONA_CABECALHO * altura < p.rect.y0 < ZONA_RODAPE * altura
+        ]
+        if not palavras:
+            return None
+        x0 = min(p.rect.x0 for p in palavras)
+        x1 = max(p.rect.x1 for p in palavras)
+        topo = min(p.rect.y0 for p in palavras)
+        base = max(p.rect.y1 for p in palavras)
+        lugar = (pagina.number, coluna)
+        if inicio and lugar == (inicio.pagina, inicio.coluna):
+            topo = inicio.y
+        if fim and lugar == (fim.pagina, fim.coluna):
+            base = fim.y
+        if base - topo < 2:
+            return None
+        return _normalizar(pagina, pymupdf.Rect(x0 - 3, topo - 2, x1 + 3, base))

@@ -60,8 +60,9 @@ class ExtracaoLLM(BaseModel):
 
 
 class TopicoClassificadoLLM(BaseModel):
+    """O título fica sempre o do PDF: o LLM só resume e marca a relevância BIM."""
+
     id: str
-    titulo: str
     resumo: str
     relevante_bim: bool
 

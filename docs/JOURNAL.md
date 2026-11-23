@@ -203,3 +203,13 @@ Pedido do time após a demo:
   - glossário.
 
 **Fora do escopo, já existente:** sair dos Resultados e voltar logo em seguida gera "e is not a function" no worker do Fragments (3D). Reproduzido também na versão anterior a esta mudança.
+
+### Tópicos do edital da Linha 6: títulos do PDF, sumário e páginas duplas (23/11/2026)
+
+A lista de tópicos do edital "Volume II" (PPP da Linha 6) saía com números repetidos ("4.2 4.2 Bicicletário"), agrupadores genéricos ("Seção 5"), capítulos ausentes (7, 8, 9) e títulos emendados. Eram três causas:
+
+- **O LLM reescrevia o título.** Com o Gemini ligado, o título vinha da resposta do modelo, às vezes com o número junto ou misturado a outro tópico. Agora número e título vêm sempre do PDF; o LLM só escreve o resumo e marca a relevância BIM (prompt `topicos` 2026-11-23.2).
+- **Duas páginas impressas por folha.** Com `sort=True` o PyMuPDF mistura as duas metades linha a linha, e os títulos de capítulo ficavam colados ao texto da outra página. O módulo `adapters/pdf/colunas.py` lê a folha coluna por coluna quando ela está deitada, tem texto dos dois lados e nenhuma linha cruza o meio. O leitor e o localizador de grifos usam o mesmo módulo; a faixa de um tópico é desenhada coluna a coluna. Páginas de uma coluna não mudam (o texto do edital de demonstração é idêntico).
+- **O sumário impresso era lido como corpo.** O "9.3" do sumário travava a numeração, e itens de tabela ("4 CP's por peça") e anexos internos do capítulo 10 viravam títulos. `domain/sumario.py` lê o sumário (inclusive entradas quebradas em duas linhas e com pontilhado curto); as linhas dele nunca viram títulos e, com 5 entradas ou mais, só abrem tópicos os números que constam nele, com título compatível.
+
+Resultado no edital: 75 tópicos (preâmbulo e capítulos 1 a 14), na ordem, sem números repetidos.

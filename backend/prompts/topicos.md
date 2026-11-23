@@ -1,11 +1,10 @@
-<!-- versao: 2026-11-23.1 -->
+<!-- versao: 2026-11-23.2 -->
 Abaixo estão os tópicos de um edital, já segmentados por regra (número e título). Para cada tópico:
 - mantenha o "id" exatamente igual;
-- devolva um "titulo" curto e claro (pode manter o original);
 - escreva um "resumo" de até 20 palavras;
 - marque "relevante_bim" = true se o tópico traz requisitos sobre o modelo BIM, os dados do modelo, os elementos construtivos ou a entrega de informação. Prazos, pagamentos, habilitação e garantias não são relevantes.
 
-Não crie, junte nem divida tópicos.
+Não crie, junte nem divida tópicos. O número e o título vêm do PDF e não devem ser reescritos.
 
 Exemplos de decisão (ilustrativos):
 - "4 DA MODELAGEM DA INFORMAÇÃO (BIM)", "5.1 Portas", "Formato de entrega do IFC" → relevante_bim = true.

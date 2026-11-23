@@ -112,7 +112,7 @@ def test_extracao_do_eir_renderiza_o_prompt_e_converte_requisitos(tmp_path: Path
     assert "5.1.1 Todas as portas" in prompt
 
 
-def test_classificacao_de_topicos_preserva_hierarquia(tmp_path: Path) -> None:
+def test_classificacao_de_topicos_preserva_hierarquia_e_titulo_do_pdf(tmp_path: Path) -> None:
     llm, _ = _llm(
         tmp_path,
         {
@@ -120,7 +120,7 @@ def test_classificacao_de_topicos_preserva_hierarquia(tmp_path: Path) -> None:
                 "topicos": [
                     {
                         "id": "TOP-02",
-                        "titulo": "Portas",
+                        "titulo": "5.1 5.1 Portas corta-fogo e Paredes",
                         "resumo": "Exige FireRating.",
                         "relevante_bim": True,
                     }
@@ -130,6 +130,7 @@ def test_classificacao_de_topicos_preserva_hierarquia(tmp_path: Path) -> None:
     )
     [topico] = LlmTopicClassifier(llm).classify([TOPICO])
     assert topico.resumo == "Exige FireRating." and topico.pai_id == "TOP-01"
+    assert (topico.numero, topico.titulo) == (TOPICO.numero, TOPICO.titulo)
 
 
 def test_analisador_e_recomendador(tmp_path: Path) -> None:

@@ -4,6 +4,7 @@ import logging
 
 import pymupdf
 
+from editalcheck.adapters.pdf.colunas import texto_em_ordem
 from editalcheck.domain.models import Edital, Pagina
 
 logger = logging.getLogger("editalcheck.pdf")
@@ -23,7 +24,7 @@ def paginas_do_pdf(conteudo: bytes) -> tuple[Pagina, ...]:
     try:
         with pymupdf.open(stream=conteudo, filetype="pdf") as documento:
             for indice, pagina in enumerate(documento, start=1):
-                texto = pagina.get_text("text", sort=True).translate(LIGADURAS)
+                texto = texto_em_ordem(pagina).translate(LIGADURAS)
                 paginas.append(Pagina(numero=indice, texto=texto))
     except (pymupdf.FileDataError, RuntimeError, ValueError) as erro:
         logger.warning("PDF ilegível: %s", erro)

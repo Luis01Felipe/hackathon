@@ -129,7 +129,6 @@ class LlmTopicClassifier:
             classificados.append(
                 replace(
                     topico,
-                    titulo=item.titulo.strip() or topico.titulo,
                     resumo=item.resumo.strip(),
                     relevante_bim=item.relevante_bim,
                 )
