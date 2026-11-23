@@ -2,7 +2,13 @@
 .env
 .env.*
 !.env.example
-!.env.deploy.example
+
+# Deploy do servidor: o compose de produção e o .env.deploy ficam só no servidor.
+# O repositório traz o docker-compose.local.yml, para rodar na máquina.
+docker-compose.yml
+docker-compose.override.yml
+compose.yml
+compose.override.yml
 
 # Python
 backend/.venv/
