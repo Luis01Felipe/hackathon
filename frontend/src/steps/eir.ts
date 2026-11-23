@@ -1,7 +1,15 @@
 // Passo 3 — Revisão humana dos requisitos de informação (IR): aceitar, editar ou rejeitar
 // cada requisito, cadastrar marcos de entrega e conferir as lições aprendidas.
 import { api, urls } from "../api";
-import { barraFiltros, botaoLimpar, campoBusca, contador, contem, selectFiltro } from "../filtros";
+import {
+  barraFiltros,
+  botaoLimpar,
+  campoBusca,
+  contador,
+  contem,
+  filtrosReiniciaveis,
+  selectFiltro,
+} from "../filtros";
 import {
   CARDINALIDADE,
   DESCRICAO_VERIFICACAO,
@@ -70,8 +78,8 @@ const FILTROS_PADRAO: FiltrosEir = {
   verificacao: TODOS,
   origem: TODOS,
 };
-const filtros: FiltrosEir = { ...FILTROS_PADRAO };
-const COLUNAS_TABELA = 8;
+const filtros = filtrosReiniciaveis<FiltrosEir>(FILTROS_PADRAO);
+const COLUNAS_TABELA = 6;
 
 const VARIANTE_STATUS: Record<string, string> = {
   proposto: "neutro",
@@ -86,7 +94,7 @@ const VARIANTE_ORIGEM: Record<string, string> = {
   customizado: "media",
 };
 
-export const VARIANTE_VERIFICACAO: Record<TipoVerificacao, string> = {
+const VARIANTE_VERIFICACAO: Record<TipoVerificacao, string> = {
   ids: "sucesso",
   ids_script: "info",
   script: "media",
@@ -120,7 +128,7 @@ interface RotuloTopico {
 }
 
 /** Tópico de origem do requisito: número, título e caminho até a seção de nível 1. */
-export function rotuloTopico(topicoId: string, topicos: Topico[] | null): RotuloTopico {
+function rotuloTopico(topicoId: string, topicos: Topico[] | null): RotuloTopico {
   const especial = TOPICOS_ESPECIAIS[topicoId];
   if (especial) return { numero: "—", titulo: especial, caminho: especial };
   const porId = new Map((topicos ?? []).map((t) => [t.id, t]));
@@ -191,7 +199,7 @@ export function renderEir(ctx: Ctx): HTMLElement {
       .ir(projeto.id)
       .then((eir) => {
         estado.eir = eir;
-        ctx.atualizar();
+        ctx.atualizarNoPasso(3);
       })
       .catch((e) => {
         secao.lastChild?.remove();
@@ -205,7 +213,7 @@ export function renderEir(ctx: Ctx): HTMLElement {
       .topicos(projeto.id)
       .then((topicos) => {
         estado.topicos = topicos;
-        ctx.atualizar();
+        ctx.atualizarNoPasso(3);
       })
       .catch(() => undefined);
   }
@@ -318,15 +326,15 @@ export function renderEir(ctx: Ctx): HTMLElement {
         campoBusca("Buscar por ID, texto, classe IFC, ambiente ou tópico", filtros.busca, mudar("busca")),
         selectFiltro(
           "Status",
-          [[TODOS, "Todos os status"], ["aprovados", "Aprovados e editados"], ...Object.entries(STATUS_REQUISITO)],
+          [[TODOS, "Status: todos"], ["aprovados", "Aprovados e editados"], ...Object.entries(STATUS_REQUISITO)],
           filtros.status,
           mudar("status"),
         ),
-        selectFiltro("Tópico", [[TODOS, "Todos os tópicos"], ...topicosUsados], filtros.topico, mudar("topico")),
+        selectFiltro("Tópico", [[TODOS, "Tópico: todos"], ...topicosUsados], filtros.topico, mudar("topico")),
         selectFiltro(
           "Ambiente",
           [
-            [TODOS, "Todos os ambientes"],
+            [TODOS, "Ambiente: todos"],
             [SEM_AMBIENTE, "Sem ambiente (todo o tópico)"],
             ...ambientesConhecidos().map((a) => [a, a] as [string, string]),
           ],
@@ -336,7 +344,7 @@ export function renderEir(ctx: Ctx): HTMLElement {
         selectFiltro(
           "Item de checagem",
           [
-            [TODOS, "Todos os itens de checagem"],
+            [TODOS, "Item: todos"],
             ...Object.entries(ITEM_CHECAGEM).map(([sigla, nome]) => [sigla, `${sigla} · ${nome}`] as [string, string]),
           ],
           filtros.item,
@@ -345,7 +353,7 @@ export function renderEir(ctx: Ctx): HTMLElement {
         selectFiltro(
           "Verificação",
           [
-            [TODOS, "Toda verificação"],
+            [TODOS, "Verificação: toda"],
             ["entra_ids", "Entram no IDS"],
             ["fora_ids", "Fora do IDS"],
             ...Object.entries(TIPO_VERIFICACAO),
@@ -353,7 +361,7 @@ export function renderEir(ctx: Ctx): HTMLElement {
           filtros.verificacao,
           mudar("verificacao"),
         ),
-        selectFiltro("Origem", [[TODOS, "Toda origem"], ...Object.entries(ORIGEM_REQUISITO)], filtros.origem, mudar("origem")),
+        selectFiltro("Origem", [[TODOS, "Origem: toda"], ...Object.entries(ORIGEM_REQUISITO)], filtros.origem, mudar("origem")),
         botaoLimpar(() => {
           Object.assign(filtros, FILTROS_PADRAO);
           desenharBarra();
@@ -385,7 +393,7 @@ export function renderEir(ctx: Ctx): HTMLElement {
         projeto.marcos = marcos;
         estado.ids = null;
         estado.eir = await api.ir(projeto.id);
-        ctx.atualizar();
+        ctx.atualizarNoPasso(3);
       }),
     );
   };
@@ -399,7 +407,7 @@ export function renderEir(ctx: Ctx): HTMLElement {
       estado.eir = novo;
       estado.ids = null;
       toast("Requisitos verificáveis aprovados.", "sucesso");
-      ctx.atualizar();
+      ctx.atualizarNoPasso(3);
     } catch (e) {
       limpar(status);
       status.append(erro(mensagemErro(e)));
@@ -444,12 +452,10 @@ export function renderEir(ctx: Ctx): HTMLElement {
             null,
             h("th", null, "ID"),
             h("th", null, "Requisito e trecho de origem"),
-            h("th", null, "Tópico"),
-            h("th", null, "Ambiente"),
-            h("th", null, "Item de checagem"),
+            h("th", null, "Tópico, ambiente e item"),
             h("th", null, "Mapeamento IFC"),
             h("th", null, "Verificação"),
-            h("th", null, "Ações"),
+            h("th", { class: "col-acoes" }, "Ações"),
           ),
         ),
         corpoTabela,
@@ -515,7 +521,7 @@ function linhaRequisito(
     ),
     h(
       "td",
-      { class: "col-req" },
+      { class: "col-req", "data-rotulo": "Requisito e trecho de origem" },
       h("p", { class: "req-descricao" }, req.descricao),
       h(
         "blockquote",
@@ -534,30 +540,34 @@ function linhaRequisito(
     ),
     h(
       "td",
-      { class: "col-topico", title: topico.caminho },
-      topico.numero !== "—" ? h("strong", { class: "ir-topico-numero" }, topico.numero) : null,
-      h("span", { class: "ir-topico-titulo" }, topico.titulo || "—"),
+      { class: "col-classif", "data-rotulo": "Tópico, ambiente e item" },
+      h(
+        "div",
+        { class: "classif-topico", title: topico.caminho },
+        topico.numero !== "—" ? h("strong", { class: "ir-topico-numero" }, topico.numero) : null,
+        h("span", { class: "ir-topico-titulo" }, topico.titulo || "—"),
+      ),
+      h(
+        "div",
+        { class: "classif-ambiente" },
+        req.ambientes.length
+          ? req.ambientes.map((a) => badge(a, "ambiente", "Ambiente"))
+          : h("small", { class: "texto-suave" }, "Todo o tópico"),
+      ),
+      h(
+        "div",
+        { class: "classif-item" },
+        req.item_checagem
+          ? [
+              badge(req.item_checagem, `item badge-item-${req.item_checagem.toLowerCase()}`, ITEM_CHECAGEM[req.item_checagem]),
+              h("small", { class: "texto-suave item-nome" }, ITEM_CHECAGEM[req.item_checagem]),
+            ]
+          : h("small", { class: "texto-suave" }, "Sem item de checagem"),
+      ),
     ),
     h(
       "td",
-      { class: "col-ambiente" },
-      req.ambientes.length
-        ? req.ambientes.map((a) => badge(a, "ambiente", "Ambiente"))
-        : h("small", { class: "texto-suave" }, "Todo o tópico"),
-    ),
-    h(
-      "td",
-      { class: "col-item" },
-      req.item_checagem
-        ? [
-            badge(req.item_checagem, `item badge-item-${req.item_checagem.toLowerCase()}`, ITEM_CHECAGEM[req.item_checagem]),
-            h("small", { class: "texto-suave item-nome" }, ITEM_CHECAGEM[req.item_checagem]),
-          ]
-        : h("small", { class: "texto-suave" }, "Sem classificação"),
-    ),
-    h(
-      "td",
-      { class: "col-map" },
+      { class: "col-map", "data-rotulo": "Mapeamento IFC" },
       h("code", { class: "mapa" }, mapeamento(req)),
       h(
         "div",
@@ -580,7 +590,7 @@ function linhaRequisito(
     ),
     h(
       "td",
-      { class: "col-verif" },
+      { class: "col-verif", "data-rotulo": "Verificação" },
       badge(TIPO_VERIFICACAO[verificacao], VARIANTE_VERIFICACAO[verificacao], DESCRICAO_VERIFICACAO[verificacao]),
       !req.verificavel_por_ids && req.motivo_nao_verificavel
         ? h("small", { class: "motivo" }, req.motivo_nao_verificavel)
@@ -667,7 +677,7 @@ function abrirEdicao(
     type: "text",
     id: "ed-ambientes",
     list: "lista-ambientes",
-    placeholder: "Ex.: Plataformas; Sala de baterias (vazio = todo o tópico)",
+    placeholder: "Vazio = todo o tópico",
   });
   ambientes.value = req.ambientes.join("; ");
   const motivo = h("input", { type: "text", id: "ed-motivo", placeholder: "Por que não dá para verificar no modelo?" });

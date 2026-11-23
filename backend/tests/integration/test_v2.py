@@ -14,7 +14,7 @@ from editalcheck.bootstrap import Container, construir
 from editalcheck.config import carregar
 from editalcheck.domain.models import Projeto, TipoApontamento
 from editalcheck.entrypoints.api.main import criar_app
-from tests.conftest import PASTA_DEMO
+from tests.conftest import PASTA_DEMO, configuracao_de_teste
 
 LICOES = PASTA_DEMO / "licoes_aprendidas.txt"
 
@@ -215,9 +215,8 @@ def test_api_v2(container: Container) -> None:
     topicos = [
         t["id"] for t in cliente.get(f"/api/projetos/{pid}/topicos").json() if t["numero"] == "5.1"
     ]
-    assert cliente.post(f"/api/projetos/{pid}/ri", json={"topicos": topicos}).status_code == 200
-    assert cliente.post(f"/api/projetos/{pid}/eir", json={"topicos": topicos}).status_code == 200
-    cliente.post(f"/api/projetos/{pid}/ri/aprovar-todos", json={"somente_verificaveis": True})
+    assert cliente.post(f"/api/projetos/{pid}/ir", json={"topicos": topicos}).status_code == 200
+    cliente.post(f"/api/projetos/{pid}/ir/aprovar-todos", json={"somente_verificaveis": True})
     ids = cliente.post(f"/api/projetos/{pid}/ids", json={"versao_ifc": "IFC4"}).json()
     assert ids["valido"] and ids["escopo"] == "Contrato inteiro"
 
@@ -248,16 +247,7 @@ def test_api_v2(container: Container) -> None:
 
 def test_modo_persistente_continua_funcionando(tmp_path: Path) -> None:
     settings = carregar(
-        {
-            "GEMINI_API_KEY": "",
-            "GOOGLE_API_KEY": "",
-            "BSDD_ATIVO": "false",
-            "EDITALCHECK_MODO_DADOS": "persistente",
-            "EDITALCHECK_DATA_DIR": str(tmp_path / "dados"),
-            "EDITALCHECK_CACHE_DIR": str(tmp_path / "cache"),
-            "EDITALCHECK_DEMO_DIR": str(PASTA_DEMO),
-            "EDITALCHECK_FRONTEND_DIR": str(tmp_path / "sem-frontend"),
-        }
+        configuracao_de_teste(tmp_path, EDITALCHECK_MODO_DADOS="persistente"), ler_dotenv=False
     )
     container = construir(settings)
     projeto, verificacao, _ = _rodar(container)
@@ -371,8 +361,8 @@ def test_api_visualizador_do_edital(container: Container) -> None:
     topicos = [
         t["id"] for t in cliente.get(f"/api/projetos/{pid}/topicos").json() if t["relevante_bim"]
     ]
-    cliente.post(f"/api/projetos/{pid}/ri", json={"topicos": topicos})
-    cliente.post(f"/api/projetos/{pid}/ri/aprovar-todos", json={"somente_verificaveis": True})
+    cliente.post(f"/api/projetos/{pid}/ir", json={"topicos": topicos})
+    cliente.post(f"/api/projetos/{pid}/ir/aprovar-todos", json={"somente_verificaveis": True})
     vid = cliente.post(f"/api/projetos/{pid}/verificacoes").json()["id"]
     locais = cliente.get(f"/api/verificacoes/{vid}/regioes").json()
     assert any(local["localizado"] for local in locais)

@@ -46,6 +46,14 @@ class LocalizarNoEdital:
         with self._trava:
             return self._cache.get(chave)
 
+    def esquecer(self, projeto_id: str, edital: bytes | None) -> None:
+        """Projeto apagado ou expirado: tira do cache as posições e o PDF aberto."""
+        with self._trava:
+            for chave in [c for c in self._cache if c.split(":")[1] == projeto_id]:
+                del self._cache[chave]
+        if edital is not None:
+            self._localizador.esquecer(edital)
+
     def _pdf(self, projeto_id: str) -> bytes:
         pdf = self._repo.read_file(projeto_id, ARQUIVO_EDITAL)
         if pdf is None:
@@ -69,7 +77,7 @@ class LocalizarNoEdital:
         relatorio = self._repo.get_relatorio(verificacao_id)
         if relatorio is None:
             raise NaoEncontradoError("Relatório não encontrado.")
-        chave = f"apontamentos:{verificacao_id}"
+        chave = f"apontamentos:{relatorio.projeto_id}:{verificacao_id}"
         guardado = self._em_cache(chave)
         if isinstance(guardado, list):
             return guardado

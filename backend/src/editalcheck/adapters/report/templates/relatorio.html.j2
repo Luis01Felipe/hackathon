@@ -7,12 +7,12 @@
 <style>
   :root {
     --bg: #f6f7f9; --card: #ffffff; --text: #1d2430; --muted: #5b6575; --line: #e2e6ec;
-    --primary: #1f3a5f; --alta: #c62828; --media: #e07b00; --baixa: #5f7383; --ok: #2e7d32;
+    --primary: #1f5fbf; --primary-escuro: #194f9f; --alta: #c62828; --media: #e08e00; --baixa: #3f5f7d; --ok: #2e7d32;
   }
   * { box-sizing: border-box; }
   body { margin: 0; font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--bg);
-         color: var(--text); line-height: 1.5; font-size: 15px; }
-  header { background: var(--primary); color: #fff; padding: 28px 40px; }
+         color: var(--text); line-height: 1.5; font-size: 15px; overflow-wrap: break-word; }
+  header { background: linear-gradient(135deg, var(--primary-escuro), var(--primary)); color: #fff; padding: 28px 40px; }
   header h1 { margin: 0 0 4px; font-size: 26px; }
   header p { margin: 2px 0; opacity: .85; }
   main { max-width: 1180px; margin: 0 auto; padding: 24px 24px 60px; }
@@ -26,6 +26,8 @@
           border-radius: 8px; overflow: hidden; font-size: 14px; }
   th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
   th { background: #eef1f5; font-weight: 600; }
+  .tabela-rolagem { overflow-x: auto; border-radius: 8px; }
+  .tabela-rolagem table { min-width: 560px; }
   .selo { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600;
           color: #fff; white-space: nowrap; }
   .alta { background: var(--alta); } .media { background: var(--media); } .baixa { background: var(--baixa); }
@@ -40,7 +42,7 @@
   blockquote { margin: 8px 0; padding: 8px 12px; background: #f3f5f8; border-left: 3px solid var(--primary);
                font-style: italic; }
   .campo { margin: 6px 0; } .campo b { color: var(--primary); }
-  code { background: #eef1f5; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  code { background: #eef1f5; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; overflow-wrap: anywhere; }
   .avisos { background: #fff8e1; border: 1px solid #ffe08a; border-radius: 8px; padding: 10px 16px; }
   .pequeno { font-size: 12.5px; color: var(--muted); }
   details summary { cursor: pointer; color: var(--primary); }
@@ -60,7 +62,23 @@
   .fonte-licoes { border-left-color: #a0522d; }
   .ver-edital { margin: 6px 0 0; font-size: 13px; }
   .ver-edital a { font-weight: 600; color: var(--primary); }
-  @media print { .ver-edital { display: none; } }
+  @media (max-width: 760px) {
+    header { padding: 20px 16px; }
+    header h1 { font-size: 21px; }
+    main { padding: 16px 16px 40px; }
+    .apontamento { padding: 12px 14px; }
+  }
+  /* Impressão: fundo branco e sem cortar cartões, linhas de tabela e títulos no fim da página. */
+  @media print {
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { background: #fff; font-size: 12.5px; }
+    main { max-width: none; padding: 0 8px; }
+    .ver-edital { display: none; }
+    .apontamento, .card, tr, blockquote { break-inside: avoid; }
+    h2, h3 { break-after: avoid; }
+    .tabela-rolagem { overflow: visible; }
+    .tabela-rolagem table { min-width: 0; }
+  }
 </style>
 </head>
 <body>
@@ -175,7 +193,7 @@
 {% if r.licoes %}
 <h2>Lições aprendidas ({{ r.licoes | length }})</h2>
 <p class="pequeno">Quarta entrada do ciclo PDCA. As lições só acrescentam verificações: nunca removem nem rebaixam apontamentos.</p>
-<table class="licoes">
+<div class="tabela-rolagem"><table class="licoes">
   <tr><th>ID</th><th>Lição</th><th>Origem</th><th>No edital?</th></tr>
   {% for l in r.licoes %}
   {% set v = verificacoes_licoes.get(l.id) %}
@@ -186,12 +204,12 @@
     <td>{% if v and v.explicita %}<span class="selo ok">Explícita</span>{% if v.evidencia %}<br><span class="pequeno">p. {{ v.evidencia.pagina }}</span>{% endif %}{% elif v %}<span class="selo alta">Ausente</span>{% else %}<span class="selo neutro">Não avaliada</span>{% endif %}</td>
   </tr>
   {% endfor %}
-</table>
+</table></div>
 {% endif %}
 
 {% if not r.sem_modelo %}
 <h2>Conformidade por especificação IDS</h2>
-<table>
+<div class="tabela-rolagem"><table>
   <tr><th>Especificação</th><th>Aplicáveis</th><th>Aprovados</th><th>Falhas</th><th>Status</th></tr>
   {% for e in r.resultados_ids %}
   <tr>
@@ -201,23 +219,23 @@
   {% else %}
   <tr><td colspan="5">Nenhum IDS validado.</td></tr>
   {% endfor %}
-</table>
+</table></div>
 {% endif %}
 
 {% if r.cobertura %}
 <h2>Cobertura do edital por classe IFC</h2>
-<table>
+<div class="tabela-rolagem"><table>
   <tr><th>Classe</th><th>Elementos no modelo</th><th>Requisitos</th><th>Situação</th></tr>
   {% for c in r.cobertura.classes %}
   <tr><td><code>{{ c.classe }}</code></td><td>{{ c.contagem }}</td><td>{{ c.requisitos | join(", ") or "—" }}</td>
       <td>{% if c.coberta %}<span class="selo ok">Coberta</span>{% else %}<span class="selo alta">Lacuna</span>{% endif %}</td></tr>
   {% endfor %}
-</table>
+</table></div>
 {% endif %}
 
 <h2>Checklist de itens mínimos do edital</h2>
 <p class="pequeno">Checklist de autoria do time, inspirada no conteúdo esperado de requisitos de informação na ISO 19650.</p>
-<table>
+<div class="tabela-rolagem"><table>
   <tr><th>Item</th><th>Crítico</th><th>Status</th><th>Evidência</th></tr>
   {% for c in r.checklist %}
   {% set item = itens.get(c.item_id) %}
@@ -228,11 +246,11 @@
     <td>{% if c.evidencia %}“{{ c.evidencia.trecho }}” <span class="pequeno">(p. {{ c.evidencia.pagina }})</span>{% else %}<span class="pequeno">{{ c.justificativa }}</span>{% endif %}</td>
   </tr>
   {% endfor %}
-</table>
+</table></div>
 
 <h2>Requisitos de informação (IR) aprovados ({{ r.requisitos | selectattr("aprovado") | list | length }})</h2>
 <p class="pequeno">O contrato de dados da contratação. Cada requisito cita o trecho do edital (ou da lição aprendida) de onde veio.</p>
-<table>
+<div class="tabela-rolagem"><table>
   <tr><th>ID</th><th>Requisito</th><th>Mapeamento IFC</th><th>Vocabulário</th><th>Fonte</th></tr>
   {% for q in r.requisitos if q.aprovado %}
   <tr>
@@ -245,16 +263,16 @@
     <td class="pequeno">{% if q.licao_id %}Lição {{ q.licao_id }}, {% else %}Edital, {% endif %}p. {{ q.evidencia.pagina }}{% if q.clausula %}, item {{ q.clausula }}{% endif %}</td>
   </tr>
   {% endfor %}
-</table>
+</table></div>
 
 <h2>Custo e tempo</h2>
 {% if r.consumo %}
-<table>
+<div class="tabela-rolagem"><table>
   <tr><th>Etapa</th><th>Chamadas</th><th>Tokens de entrada</th><th>Tokens de saída</th><th>Tempo de IA</th></tr>
   {% for e in r.consumo %}
   <tr><td>{{ e.etapa }}</td><td>{{ e.chamadas }}{% if e.chamadas_cache %} (+{{ e.chamadas_cache }} do cache){% endif %}</td><td>{{ e.tokens_entrada | milhar }}</td><td>{{ e.tokens_saida | milhar }}</td><td>{{ "%.1f" | format(e.duracao_s) }} s</td></tr>
   {% endfor %}
-</table>
+</table></div>
 {% else %}
 <p class="pequeno">Sem chamadas de IA nesta verificação (modo de regras determinísticas).</p>
 {% endif %}
@@ -277,12 +295,12 @@
 {% endif %}
 
 <h2>Glossário</h2>
-<table>
+<div class="tabela-rolagem"><table>
   <tr><th>Termo</th><th>O que é</th><th>Referência</th></tr>
   {% for termo, definicao, referencia in GLOSSARIO %}
   <tr><td><b>{{ termo }}</b></td><td>{{ definicao }}</td><td class="pequeno">{{ referencia }}</td></tr>
   {% endfor %}
-</table>
+</table></div>
 <p class="pequeno">Versões das normas conferidas em catálogos públicos em 22/11/2026. Confirme a vigência no catálogo oficial (ISO, ABNT) antes de citar em contrato.</p>
 
 <h2>Limites desta verificação</h2>

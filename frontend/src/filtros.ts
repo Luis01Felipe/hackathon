@@ -4,8 +4,27 @@ import { h } from "./ui";
 
 const ESPERA_BUSCA_MS = 150;
 
+const reiniciadores: (() => void)[] = [];
+
+/** Estado de filtros de um passo que volta ao padrão quando começa um projeto novo. */
+export function filtrosReiniciaveis<T extends object>(padrao: T): T {
+  const filtros = { ...padrao };
+  reiniciadores.push(() => Object.assign(filtros, padrao));
+  return filtros;
+}
+
+/** Registra outra limpeza de filtros (ex.: um Map de filtros por tabela). */
+export function aoReiniciarFiltros(limpar: () => void): void {
+  reiniciadores.push(limpar);
+}
+
+/** Zera os filtros de todos os passos (novo projeto). */
+export function reiniciarFiltros(): void {
+  for (const reiniciar of reiniciadores) reiniciar();
+}
+
 /** Texto sem acento e em minúsculas, para a busca não depender de grafia. */
-export function normalizarBusca(texto: string): string {
+function normalizarBusca(texto: string): string {
   return texto
     .normalize("NFD")
     .replace(/\p{Mn}/gu, "")
@@ -58,11 +77,25 @@ export function selectFiltro(
 ): HTMLSelectElement {
   const sel = h(
     "select",
-    { "aria-label": rotuloTexto, title: rotuloTexto },
+    { "aria-label": rotuloTexto },
     opcoes.map(([valor, texto]) => h("option", { value: valor }, texto)),
   );
-  sel.value = opcoes.some(([v]) => v === atual) ? atual : opcoes[0][0];
-  sel.addEventListener("change", () => aoMudar(sel.value));
+  // O texto completo fica no title: o select pode ser mais estreito que a opção escolhida.
+  const atualizarTitulo = () => {
+    sel.title = `${rotuloTexto}: ${sel.selectedOptions[0]?.textContent ?? ""}`;
+  };
+  const valido = opcoes.some(([v]) => v === atual);
+  sel.value = valido ? atual : opcoes[0][0];
+  atualizarTitulo();
+  sel.addEventListener("change", () => {
+    atualizarTitulo();
+    aoMudar(sel.value);
+  });
+  if (!valido) {
+    // O valor salvo sumiu das opções: o filtro segue o que o select mostra. Fica para depois
+    // da montagem da página, porque quem chama ainda está desenhando.
+    queueMicrotask(() => aoMudar(sel.value));
+  }
   return sel;
 }
 

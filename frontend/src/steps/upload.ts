@@ -1,11 +1,11 @@
 // Passo 1 — Upload do edital (PDF), do modelo (IFC, opcional) e das lições aprendidas (TXT ou PDF).
 import { api } from "../api";
-import { barraFiltros, caixaFiltro, campoBusca, contador, contem } from "../filtros";
+import { barraFiltros, caixaFiltro, campoBusca, contador, contem, filtrosReiniciaveis } from "../filtros";
 import type { Ctx } from "../state";
 import type { ProjetoResumo, VersaoIfc } from "../types";
 import { avisos, badge, botao, carregando, erro, h, limpar, mensagemErro, num } from "../ui";
 
-export const POSICIONAMENTO =
+const POSICIONAMENTO =
   "O EditalCheck transforma as exigências do edital, escritas em linguagem natural, num contrato de dados " +
   "operacional: os requisitos de informação (IR) e o IDS. Depois, verifica o modelo IFC contra esse contrato " +
   "e o edital contra boas práticas, para que contratante e contratado cheguem a um consenso antes da obra.";
@@ -93,7 +93,7 @@ export function renderUpload(ctx: Ctx): HTMLElement {
     try {
       estado.projeto = await acao();
       estado.ifcLocal = ifcLocal;
-      ctx.atualizar();
+      ctx.atualizarNoPasso(1);
     } catch (e) {
       limpar(status);
       status.append(erro(mensagemErro(e)));
@@ -160,10 +160,42 @@ export function renderUpload(ctx: Ctx): HTMLElement {
     status,
   );
   secao.append(cartao, avisoPrivacidade(ctx));
-  if (!estado.config) {
-    secao.append(erro("Não foi possível falar com a API do EditalCheck. Verifique se o backend está rodando."));
-  }
+  if (!estado.config) secao.prepend(avisoApiIndisponivel(ctx));
   return secao;
+}
+
+/** Servidor fora do ar na abertura: explica e permite tentar de novo sem recarregar a página. */
+function avisoApiIndisponivel(ctx: Ctx): HTMLElement {
+  const status = h("div", { class: "status-acao" });
+  const tentar = botao(
+    "Tentar de novo",
+    async () => {
+      tentar.disabled = true;
+      limpar(status);
+      status.append(carregando("Conectando ao servidor…"));
+      try {
+        ctx.estado.config = await api.config();
+        ctx.atualizarNoPasso(1);
+      } catch (e) {
+        limpar(status);
+        status.append(erro(mensagemErro(e)));
+        tentar.disabled = false;
+      }
+    },
+    "primario",
+  );
+  return h(
+    "div",
+    { class: "cartao cartao-erro cartao-indisponivel", role: "alert" },
+    h("h3", null, "Servidor indisponível"),
+    h(
+      "p",
+      { class: "texto-suave" },
+      "Não foi possível falar com o servidor do EditalCheck. Confira a conexão e tente de novo em alguns instantes.",
+    ),
+    tentar,
+    status,
+  );
 }
 
 function avisoPrivacidade(ctx: Ctx): HTMLElement {
@@ -181,7 +213,7 @@ function avisoPrivacidade(ctx: Ctx): HTMLElement {
   );
 }
 
-const filtrosResumo = { busca: "", soEspecificaveis: false };
+const filtrosResumo = filtrosReiniciaveis({ busca: "", soEspecificaveis: false });
 
 function resumoProjeto(p: ProjetoResumo, ctx: Ctx): HTMLElement {
   const especificaveis = p.classes.filter((c) => c.especificavel);
@@ -200,7 +232,17 @@ function resumoProjeto(p: ProjetoResumo, ctx: Ctx): HTMLElement {
   const tabela = h(
     "table",
     { class: "tabela compacta lista-filtrada" },
-    h("thead", null, h("tr", null, h("th", null, "Classe IFC"), h("th", { class: "num" }, "Elementos"), h("th", null, ""))),
+    h(
+      "thead",
+      null,
+      h(
+        "tr",
+        null,
+        h("th", null, "Classe IFC"),
+        h("th", { class: "num col-estreita" }, "Elementos"),
+        h("th", { class: "col-selo" }, ""),
+      ),
+    ),
     h("tbody", null, linhasClasses.map((l) => l.el)),
   );
   const itensLicoes = p.licoes.map((l) => ({
@@ -288,7 +330,7 @@ function resumoProjeto(p: ProjetoResumo, ctx: Ctx): HTMLElement {
     avisos(p.avisos),
     barra,
     licoes,
-    p.sem_modelo ? null : h("details", { class: "detalhes" }, resumoClasses, tabela),
+    p.sem_modelo ? null : h("details", { class: "detalhes" }, resumoClasses, h("div", { class: "tabela-rolagem" }, tabela)),
     h("div", { class: "acoes" }, botao("Continuar para os tópicos →", () => ctx.irPara(2), "primario")),
   );
 }

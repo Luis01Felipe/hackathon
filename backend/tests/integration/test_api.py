@@ -31,7 +31,7 @@ def test_fluxo_completo_pela_api(container: Container, arquivos_demo) -> None:
     eir = cliente.post(f"/api/projetos/{pid}/ir", json={"topicos": selecionados}).json()
     assert len(eir["requisitos"]) == 5
     assert (
-        cliente.get(f"/api/projetos/{pid}/ri").json()
+        cliente.get(f"/api/projetos/{pid}/ir").json()
         == cliente.get(f"/api/projetos/{pid}/ir").json()
     )
     assert all(r["item_checagem"] and r["verificacao"] for r in eir["requisitos"])
@@ -60,7 +60,7 @@ def test_fluxo_completo_pela_api(container: Container, arquivos_demo) -> None:
 
     planilha = cliente.get(f"/api/projetos/{pid}/ir.xlsx")
     assert planilha.status_code == 200 and planilha.content[:2] == b"PK"
-    assert cliente.get(f"/api/projetos/{pid}/ri.xlsx").status_code == 200
+    assert cliente.get(f"/api/projetos/{pid}/ir.xlsx").status_code == 200
     _confere_planilha_ir(planilha.content, primeiro)
 
     ids = cliente.post(f"/api/projetos/{pid}/ids").json()

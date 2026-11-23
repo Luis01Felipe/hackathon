@@ -1,7 +1,7 @@
 """Configuração por variáveis de ambiente (.env fora do Git — RNF-06)."""
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -27,7 +27,7 @@ def _bool(valor: str | None, padrao: bool) -> bool:
 
 @dataclass(frozen=True)
 class Settings:
-    gemini_api_key: str | None
+    gemini_api_key: str | None = field(repr=False)  # nunca aparece em logs nem em repr
     gemini_model: str
     llm_ativo: bool
     llm_timeout_s: float
@@ -42,6 +42,7 @@ class Settings:
     pasta_frontend: Path
     limite_upload_mb: int
     nivel_log: str
+    docs_ativos: bool = True  # /docs, /redoc e /openapi.json (desligue em produção)
     caminho_raiz: str = ""  # prefixo do proxy (ex.: "/editalcheck"); vazio em desenvolvimento
     modo_dados: str = "efemero"  # efemero (só RAM, padrão) | persistente (disco, desenvolvimento)
     ttl_min: int = 120  # minutos sem acesso até um projeto ser apagado no modo efêmero
@@ -57,9 +58,11 @@ class Settings:
         return "gemini" if self.llm_ativo else "offline"
 
 
-def carregar(sobrescrever: dict[str, str] | None = None) -> Settings:
-    load_dotenv(RAIZ_REPO / ".env")
-    load_dotenv(RAIZ_BACKEND / ".env")
+def carregar(sobrescrever: dict[str, str] | None = None, *, ler_dotenv: bool = True) -> Settings:
+    """Lê a configuração do ambiente. ``ler_dotenv=False`` ignora o .env local (testes)."""
+    if ler_dotenv:
+        load_dotenv(RAIZ_REPO / ".env")
+        load_dotenv(RAIZ_BACKEND / ".env")
     env = {**os.environ, **(sobrescrever or {})}
     chave = (env.get("GEMINI_API_KEY") or env.get("GOOGLE_API_KEY") or "").strip() or None
     dados = Path(env.get("EDITALCHECK_DATA_DIR") or RAIZ_REPO / "var")
@@ -83,6 +86,7 @@ def carregar(sobrescrever: dict[str, str] | None = None) -> Settings:
         pasta_frontend=Path(env.get("EDITALCHECK_FRONTEND_DIR") or RAIZ_REPO / "frontend" / "dist"),
         limite_upload_mb=int(env.get("LIMITE_UPLOAD_MB", "200")),
         nivel_log=env.get("LOG_LEVEL", "INFO"),
+        docs_ativos=_bool(env.get("EDITALCHECK_DOCS"), True),
         caminho_raiz=env.get("EDITALCHECK_ROOT_PATH", "").strip().rstrip("/"),
         modo_dados=modo_dados,
         ttl_min=int(env.get("EDITALCHECK_TTL_MIN", "120")),

@@ -18,5 +18,9 @@ Como o sistema usa estes arquivos:
 Regras:
 
 - Não coloque aqui texto de norma ISO, CEN ou ABNT sem licença (RNF-17).
-- Não coloque dados de clientes. Este diretório é versionado no Git.
+- Não coloque dados de clientes.
+- O Git ignora os documentos desta pasta (só este `LEIA-ME.md` é versionado): um
+  documento licenciado não vai para o repositório por engano.
+- No servidor, copie os documentos para esta pasta antes do `docker compose build`.
+  Eles entram na imagem junto com os demais recursos.
 - Este arquivo (`LEIA-ME.md`) é ignorado pelo carregador.

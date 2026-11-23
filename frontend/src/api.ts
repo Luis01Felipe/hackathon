@@ -2,11 +2,9 @@
 import type {
   AcaoRequisito,
   Config,
-  ConsumoEtapa,
   Decisao,
   EirResposta,
   IdsResposta,
-  LicaoAprendida,
   LocalApontamento,
   MarcoEntrega,
   ProjetoResumo,
@@ -26,9 +24,12 @@ import type {
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 /** Prefixa um caminho da API ("/api/...") com o caminho base do app. */
-export const rota = (caminho: string): string => `${BASE}${caminho}`;
+const rota = (caminho: string): string => `${BASE}${caminho}`;
 
-export class ApiError extends Error {
+/** Evento disparado quando o servidor não tem mais o projeto (expirou ou foi apagado). */
+export const EVENTO_PROJETO_EXPIRADO = "editalcheck:projeto-expirado";
+
+class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
@@ -79,7 +80,13 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   } catch {
     throw new ApiError("Não foi possível conectar ao servidor do EditalCheck.", 0);
   }
-  if (!response.ok) throw await extrairErro(response);
+  if (!response.ok) {
+    const erro = await extrairErro(response);
+    if (erro.status === 404 && erro.message.startsWith("Projeto não encontrado")) {
+      window.dispatchEvent(new CustomEvent(EVENTO_PROJETO_EXPIRADO));
+    }
+    throw erro;
+  }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
@@ -128,21 +135,11 @@ export const api = {
   projeto: (id: string) => request<ProjetoResumo>("GET", `/api/projetos/${enc(id)}`),
   apagarProjeto: (id: string) => request<void>("DELETE", `/api/projetos/${enc(id)}`),
   topicos: (id: string) => request<Topico[]>("GET", `/api/projetos/${enc(id)}/topicos`),
-  consumo: (id: string) => request<ConsumoEtapa[]>("GET", `/api/projetos/${enc(id)}/consumo`),
   regioesTopicos: (id: string) =>
     request<Record<string, RegiaoPdf[]>>("GET", `/api/projetos/${enc(id)}/topicos/regioes`),
   regioesApontamentos: (vid: string) =>
     request<LocalApontamento[]>("GET", `/api/verificacoes/${enc(vid)}/regioes`),
 
-  enviarLicoes: (id: string, arquivos: File[]) => {
-    const form = new FormData();
-    for (const arquivo of arquivos) form.append("licoes", arquivo);
-    return request<{ licoes: LicaoAprendida[]; avisos: string[]; descartadas: number }>(
-      "POST",
-      `/api/projetos/${enc(id)}/licoes`,
-      form,
-    );
-  },
   definirMarcos: (id: string, marcos: { id?: string | null; nome: string; descricao?: string }[]) =>
     request<MarcoEntrega[]>("PUT", `/api/projetos/${enc(id)}/marcos`, { marcos }),
 

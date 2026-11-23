@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import PurePath
 
+from editalcheck.application.concorrencia import por_projeto
 from editalcheck.application.consumo import em_projeto
 from editalcheck.application.errors import EntradaInvalidaError, NaoEncontradoError
 from editalcheck.application.observability import etapa, logger
@@ -60,6 +61,7 @@ class ImportarLicoes:
         self._reserva = extrator_reserva
         self._auditoria = auditoria
 
+    @por_projeto
     def executar(self, projeto_id: str, arquivos: Sequence[tuple[bytes, str]]) -> ResultadoLicoes:
         projeto = self._repo.get(projeto_id)
         if projeto is None:

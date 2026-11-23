@@ -28,7 +28,16 @@ import type {
   Requisito,
   StatusDecisao,
 } from "../types";
-import { barraFiltros, botaoLimpar, campoBusca, contador, contem, selectFiltro } from "../filtros";
+import {
+  aoReiniciarFiltros,
+  barraFiltros,
+  botaoLimpar,
+  campoBusca,
+  contador,
+  contem,
+  filtrosReiniciaveis,
+  selectFiltro,
+} from "../filtros";
 import { citacao } from "./eir";
 import { renderAbaEdital, type AbaEdital } from "./edital";
 import {
@@ -48,7 +57,9 @@ import {
   toast,
   vazio,
 } from "../ui";
-import { Viewer3D, converterIfc, foiCancelamento } from "../viewer";
+// A biblioteca 3D (three.js e @thatopen) só é baixada quando o visualizador abre.
+import type { Viewer3D } from "../viewer";
+import { foiCancelamento } from "../viewer-erros";
 
 let viewer: Viewer3D | null = null;
 let geracao = 0;
@@ -76,10 +87,12 @@ function converterUmaVez(fonte: FonteIfc): Conversao {
     fonte,
     ouvintes,
     progresso: 0,
-    bytes: converterIfc(fonte, (p) => {
-      nova.progresso = p;
-      for (const ouvinte of ouvintes) ouvinte(p);
-    }),
+    bytes: import("../viewer").then(({ converterIfc }) =>
+      converterIfc(fonte, (p) => {
+        nova.progresso = p;
+        for (const ouvinte of ouvintes) ouvinte(p);
+      }),
+    ),
   };
   // Se falhar, a próxima tentativa converte de novo.
   nova.bytes.catch(() => {
@@ -114,14 +127,14 @@ export function pedirFocoNoEdital(apontamentoId: string | null): void {
 }
 
 type Aba = "edital" | "modelo" | "manual" | "todos";
-const filtros = {
+const filtros = filtrosReiniciaveis({
   tipo: "todos",
   severidade: "todas",
   decisao: "todas",
   busca: "",
   mostrarBaixa: false,
   aba: "" as Aba | "",
-};
+});
 const CHAVE_PERFIL = "editalcheck.perfil";
 const ABA_DO_PERFIL: Record<string, Aba> = {
   contratante: "edital",
@@ -244,10 +257,13 @@ export function renderResultados(ctx: Ctx): HTMLElement {
   const vid = relatorio.verificacao_id;
   const decisoes = new Map<string, Decisao>(relatorio.decisoes.map((d) => [d.apontamento_id, d]));
   let perfil = lerPerfil();
-  if (!filtros.aba) filtros.aba = relatorio.sem_modelo ? "edital" : ABA_DO_PERFIL[perfil] ?? "todos";
+  // A aba "modelo" não existe sem IFC: um valor herdado dela deixaria a lista vazia.
+  if (!filtros.aba || (filtros.aba === "modelo" && relatorio.sem_modelo)) {
+    filtros.aba = relatorio.sem_modelo ? "edital" : ABA_DO_PERFIL[perfil] ?? "todos";
+  }
 
   // ---------------------------------------------------------------- detalhe
-  const detalhe = h("aside", { class: "detalhe", "aria-live": "polite" });
+  const detalhe = h("aside", { class: "detalhe", "aria-label": "Detalhe do apontamento ou elemento" });
   const listaApts = h("div", { class: "lista-apontamentos" });
   let selecionado: string | null = null;
 
@@ -318,7 +334,7 @@ export function renderResultados(ctx: Ctx): HTMLElement {
   const tiposPresentes = [...new Set(relatorio.apontamentos.map((a) => a.tipo))];
   const selectTipo = selectFiltro(
     "Tipo",
-    [["todos", "Todos os tipos"], ...tiposPresentes.map((t) => [t, rotulo(TIPO_APONTAMENTO, t)] as [string, string])],
+    [["todos", "Tipo: todos"], ...tiposPresentes.map((t) => [t, rotulo(TIPO_APONTAMENTO, t)] as [string, string])],
     filtros.tipo,
     (v) => {
       filtros.tipo = v;
@@ -327,7 +343,7 @@ export function renderResultados(ctx: Ctx): HTMLElement {
   );
   const selectSeveridade = selectFiltro(
     "Severidade",
-    [["todas", "Todas as severidades"], ["alta", "Alta"], ["media", "Média"], ["baixa", "Baixa"]],
+    [["todas", "Severidade: todas"], ["alta", "Alta"], ["media", "Média"], ["baixa", "Baixa"]],
     filtros.severidade,
     (v) => {
       filtros.severidade = v;
@@ -379,7 +395,7 @@ export function renderResultados(ctx: Ctx): HTMLElement {
   );
   const selectDecisao = selectFiltro(
     "Decisão",
-    [["todas", "Todas as decisões"], ...Object.entries(DECISAO)],
+    [["todas", "Decisão: todas"], ...Object.entries(DECISAO)],
     filtros.decisao,
     (v) => {
       filtros.decisao = v;
@@ -597,6 +613,8 @@ export function renderResultados(ctx: Ctx): HTMLElement {
       }
     }, 5000);
     try {
+      const { Viewer3D } = await import("../viewer");
+      if (!vigente(minha)) return;
       const v = await Viewer3D.criar(canvasHost);
       if (!vigente(minha)) {
         v.dispose();
@@ -936,15 +954,16 @@ function cartaoApontamento(apt: Apontamento, decisao: Decisao | null, aoClicar: 
       "data-apt": apt.id,
       onclick: () => aoClicar(),
     },
+    // Só elementos de frase dentro do <button> (HTML válido): span no lugar de div.
     h(
-      "div",
+      "span",
       { class: "apontamento-topo" },
       seloOrigem(apt),
       badge(rotulo(SEVERIDADE, apt.severidade), VARIANTE_SEVERIDADE[apt.severidade] ?? "neutro"),
       badge(rotulo(TIPO_APONTAMENTO, apt.tipo), apt.tipo === "licao_nao_explicita" ? "licao" : "neutro"),
-      h("span", { class: "apontamento-id" }, apt.id),
       apt.gerado_por_ia ? badge("IA", "info", "Gerado por IA — revisar") : null,
       decisao ? badge(rotulo(DECISAO, decisao.status), VARIANTE_DECISAO[decisao.status] ?? "neutro") : null,
+      h("span", { class: "apontamento-id" }, apt.id),
     ),
     h("strong", { class: "apontamento-titulo" }, apt.titulo),
     h(
@@ -1111,8 +1130,8 @@ function detalheApontamento(
                   { type: "button", class: "link-botao", onclick: () => acoes.focarElemento(el.global_id) },
                   el.nome_longo ?? el.nome ?? "(sem nome)",
                 ),
-                h("small", null, ` ${el.classe ?? ""} · `, h("code", null, el.global_id)),
-                xyz ? h("small", { class: "xyz" }, ` · ${xyz}`) : null,
+                h("small", null, el.classe ? `${el.classe} · ` : "", h("code", null, el.global_id)),
+                xyz ? h("small", { class: "xyz" }, xyz) : null,
               );
             }),
           ),
@@ -1253,6 +1272,7 @@ interface LinhaFiltravel {
 
 /** Busca e filtro por grupo de cada tabela complementar, mantidos entre redesenhos. */
 const filtrosTabelas = new Map<string, { busca: string; grupo: string }>();
+aoReiniciarFiltros(() => filtrosTabelas.clear());
 
 function filtroDeTabela(
   chave: string,
@@ -1325,7 +1345,15 @@ function secoesComplementares(r: Relatorio): HTMLElement {
               h(
                 "thead",
                 null,
-                h("tr", null, h("th", null, "Item"), h("th", null, "Crítico"), h("th", null, "Status"), h("th", null, "Evidência"), h("th", null, "Avaliado por")),
+                h(
+                  "tr",
+                  null,
+                  h("th", null, "Item"),
+                  h("th", { class: "col-estreita" }, "Crítico"),
+                  h("th", { class: "col-estreita" }, "Status"),
+                  h("th", null, "Evidência"),
+                  h("th", { class: "col-selo" }, "Avaliado por"),
+                ),
               ),
               h("tbody", null, linhasChecklist.map((l) => l.el)),
             ),
@@ -1369,7 +1397,18 @@ function secoesComplementares(r: Relatorio): HTMLElement {
             h(
               "table",
               { class: "tabela compacta lista-filtrada" },
-              h("thead", null, h("tr", null, h("th", null, "Classe"), h("th", { class: "num" }, "Elementos"), h("th", null, "Coberta"), h("th", null, "Requisitos"))),
+              h(
+                "thead",
+                null,
+                h(
+                  "tr",
+                  null,
+                  h("th", null, "Classe"),
+                  h("th", { class: "num col-estreita" }, "Elementos"),
+                  h("th", { class: "col-estreita" }, "Coberta"),
+                  h("th", null, "Requisitos"),
+                ),
+              ),
               h("tbody", null, linhasCobertura.map((l) => l.el)),
             ),
           ),
@@ -1417,7 +1456,18 @@ function secoesComplementares(r: Relatorio): HTMLElement {
             h(
               "table",
               { class: "tabela compacta lista-filtrada" },
-              h("thead", null, h("tr", null, h("th", null, "Especificação"), h("th", { class: "num" }, "Aplicáveis"), h("th", { class: "num" }, "Aprovados"), h("th", null, "Status"))),
+              h(
+                "thead",
+                null,
+                h(
+                  "tr",
+                  null,
+                  h("th", null, "Especificação"),
+                  h("th", { class: "num col-estreita" }, "Aplicáveis"),
+                  h("th", { class: "num col-estreita" }, "Aprovados"),
+                  h("th", { class: "col-selo" }, "Status"),
+                ),
+              ),
               h("tbody", null, linhasIds.map((l) => l.el)),
             ),
           ),
@@ -1481,7 +1531,11 @@ function blocoLicoesResultado(r: Relatorio): HTMLElement | null {
       h(
         "table",
         { class: "tabela compacta lista-filtrada" },
-        h("thead", null, h("tr", null, h("th", null, "Lição"), h("th", null, "Regra"), h("th", null, "No edital?"))),
+        h(
+          "thead",
+          null,
+          h("tr", null, h("th", null, "Lição"), h("th", null, "Regra"), h("th", { class: "col-selo" }, "No edital?")),
+        ),
         h("tbody", null, linhas.map((l) => l.el)),
       ),
     ),

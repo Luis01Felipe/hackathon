@@ -8,9 +8,10 @@ processo termina. As verificações são apagadas junto com o projeto.
 
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
+from editalcheck.application.errors import NaoEncontradoError
 from editalcheck.domain.models import Projeto, Relatorio, Verificacao
 
 LIMITE_PROJETOS_PADRAO = 50
@@ -36,7 +37,7 @@ class MemoryProjectRepository:
         self,
         ttl_s: float,
         limite_projetos: int = LIMITE_PROJETOS_PADRAO,
-        ao_expirar: Callable[[str, dict[str, bytes]], None] | None = None,
+        ao_expirar: Callable[[str, Mapping[str, bytes]], None] | None = None,
         relogio: Callable[[], float] = time.monotonic,
     ) -> None:
         self._ttl = ttl_s
@@ -101,7 +102,9 @@ class MemoryProjectRepository:
         with self._trava:
             entrada = self._entrada(projeto_id)
             if entrada is None:
-                raise KeyError(f"Projeto {projeto_id} não existe ou expirou.")
+                raise NaoEncontradoError(
+                    "Projeto não encontrado (pode ter expirado ou sido apagado)."
+                )
             entrada.arquivos[nome] = conteudo
 
     def read_file(self, projeto_id: str, nome: str) -> bytes | None:

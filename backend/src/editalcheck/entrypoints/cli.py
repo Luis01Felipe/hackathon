@@ -285,6 +285,9 @@ def servidor(
         host=host,
         port=porta,
         root_path=carregar().caminho_raiz,
+        # Atrás do Traefik: esquema e IP do cliente vêm dos cabeçalhos X-Forwarded-*. Os IPs
+        # de proxy confiáveis vêm de FORWARDED_ALLOW_IPS (padrão do uvicorn: 127.0.0.1).
+        proxy_headers=True,
     )
 
 

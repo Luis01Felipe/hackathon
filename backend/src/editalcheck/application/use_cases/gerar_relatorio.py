@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from threading import Lock
 
+from editalcheck.application.concorrencia import travas_relatorio
 from editalcheck.application.consumo import ExecutorComContexto, MedidorConsumo
 from editalcheck.application.errors import EntradaInvalidaError, NaoEncontradoError
 from editalcheck.application.observability import agora, etapa, logger
@@ -209,6 +210,11 @@ class GerarRelatorio:
         )
 
     def publicar(self, relatorio: Relatorio, modelo: ModeloResumo) -> Relatorio:
+        # Uma decisão registrada durante a publicação esperaria e entraria no HTML final.
+        with travas_relatorio.segurar(relatorio.verificacao_id):
+            return self._publicar(relatorio, modelo)
+
+    def _publicar(self, relatorio: Relatorio, modelo: ModeloResumo) -> Relatorio:
         avisos = list(relatorio.avisos)
         bcf: bytes | None = None
         if not relatorio.sem_modelo:
@@ -258,6 +264,13 @@ class DecidirApontamento:
         status: str,
         comentario: str = "",
         autor: str = "",
+    ) -> DecisaoApontamento:
+        # Ler, alterar e regravar o relatório numa só vez: decisões simultâneas não se perdem.
+        with travas_relatorio.segurar(verificacao_id):
+            return self._executar(verificacao_id, apontamento_id, status, comentario, autor)
+
+    def _executar(
+        self, verificacao_id: str, apontamento_id: str, status: str, comentario: str, autor: str
     ) -> DecisaoApontamento:
         relatorio = self._repo.get_relatorio(verificacao_id)
         if relatorio is None:
@@ -310,7 +323,7 @@ class ExportarEdital:
 
     def anotado(self, verificacao_id: str) -> bytes:
         relatorio = self._relatorio(verificacao_id)
-        chave = (verificacao_id, relatorio.decisoes)
+        chave = (relatorio.projeto_id, verificacao_id, relatorio.decisoes)
         with self._trava:
             if chave in self._cache:
                 return self._cache[chave]
@@ -328,6 +341,12 @@ class ExportarEdital:
             while len(self._cache) > MAX_PDFS_EM_CACHE:
                 self._cache.popitem(last=False)
         return conteudo
+
+    def esquecer(self, projeto_id: str) -> None:
+        """Projeto apagado ou expirado: descarta os PDFs anotados dele."""
+        with self._trava:
+            for chave in [c for c in self._cache if c[0] == projeto_id]:
+                del self._cache[chave]
 
     def matriz(self, verificacao_id: str) -> bytes:
         return self._esclarecimentos.to_xlsx(self._relatorio(verificacao_id))

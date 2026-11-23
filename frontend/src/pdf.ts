@@ -62,6 +62,10 @@ export class VisualizadorPdf {
   private larguraBase = 612;
   private alturaBase = 792;
   private observador: IntersectionObserver | null = null;
+  private redimensionamento: ResizeObserver | null = null;
+  /** A escala acompanha a largura da área até o usuário usar o zoom. */
+  private ajustadoNaLargura = true;
+  private larguraAjustada = 0;
   private descartado = false;
   private pausado = false;
 
@@ -116,15 +120,25 @@ export class VisualizadorPdf {
     }
     this.ajustarLargura();
     this.atualizarIndicador();
+    // Janela redimensionada ou painel que muda de tamanho: refaz o ajuste à largura.
+    this.redimensionamento = new ResizeObserver(() => {
+      const largura = this.rolagem.clientWidth;
+      if (!this.ajustadoNaLargura || largura === 0 || Math.abs(largura - this.larguraAjustada) < 2) return;
+      this.ajustarLargura();
+    });
+    this.redimensionamento.observe(this.rolagem);
   }
 
   /** Escala que faz a página caber na largura da área de rolagem. */
   ajustarLargura(): void {
+    this.ajustadoNaLargura = true;
+    this.larguraAjustada = this.rolagem.clientWidth;
     const disponivel = Math.max(280, this.rolagem.clientWidth - 32);
     this.aplicarEscala(disponivel / this.larguraBase);
   }
 
   private zoom(direcao: 1 | -1): void {
+    this.ajustadoNaLargura = false;
     const atual = ESCALAS.findIndex((e) => e >= this.escala - 0.01);
     const indice = Math.min(ESCALAS.length - 1, Math.max(0, (atual < 0 ? 2 : atual) + direcao));
     this.aplicarEscala(ESCALAS[indice]);
@@ -185,21 +199,32 @@ export class VisualizadorPdf {
 
   private async desenhar(p: PaginaVisual): Promise<void> {
     if (this.descartado || this.pausado || p.desenhadaEm === this.escala) return;
-    p.desenhadaEm = this.escala;
-    const pagina: PDFPageProxy = await this.documento.getPage(p.numero);
-    const viewport = pagina.getViewport({ scale: this.escala });
-    const razao = Math.min(window.devicePixelRatio || 1, PIXEL_RATIO_MAXIMO);
+    const escala = this.escala;
+    p.desenhadaEm = escala;
     const canvas = h("canvas", { class: "pdf-canvas" });
-    canvas.width = Math.floor(viewport.width * razao);
-    canvas.height = Math.floor(viewport.height * razao);
-    canvas.style.width = `${Math.floor(viewport.width)}px`;
-    canvas.style.height = `${Math.floor(viewport.height)}px`;
-    await pagina.render({
-      canvas,
-      viewport,
-      transform: razao !== 1 ? [razao, 0, 0, razao, 0, 0] : undefined,
-    }).promise;
-    if (this.descartado || this.pausado || p.desenhadaEm !== this.escala) {
+    try {
+      const pagina: PDFPageProxy = await this.documento.getPage(p.numero);
+      const viewport = pagina.getViewport({ scale: escala });
+      const razao = Math.min(window.devicePixelRatio || 1, PIXEL_RATIO_MAXIMO);
+      canvas.width = Math.floor(viewport.width * razao);
+      canvas.height = Math.floor(viewport.height * razao);
+      canvas.style.width = `${Math.floor(viewport.width)}px`;
+      canvas.style.height = `${Math.floor(viewport.height)}px`;
+      await pagina.render({
+        canvas,
+        viewport,
+        transform: razao !== 1 ? [razao, 0, 0, razao, 0, 0] : undefined,
+      }).promise;
+    } catch (erro) {
+      canvas.width = 0;
+      canvas.height = 0;
+      // Visualizador descartado, aba escondida ou zoom trocado no meio do desenho: esperado.
+      if (this.descartado || this.pausado || p.desenhadaEm !== escala) return;
+      p.desenhadaEm = 0;
+      console.error(`EditalCheck: falha ao desenhar a página ${p.numero} do edital`, erro);
+      return;
+    }
+    if (this.descartado || this.pausado || p.desenhadaEm !== escala) {
       canvas.width = 0;
       canvas.height = 0;
       return;
@@ -298,7 +323,8 @@ export class VisualizadorPdf {
     this.descartado = true;
     this.onMarca = null;
     this.observador?.disconnect();
+    this.redimensionamento?.disconnect();
     this.paginas.forEach((p) => this.liberar(p));
-    void this.documento.loadingTask.destroy();
+    this.documento.loadingTask.destroy().catch(() => undefined);
   }
 }

@@ -22,6 +22,15 @@
   --neutro: #4b5563;
   --neutro-soft: #eef0f3;
   --amber: #f5a400;
+  /* Faixa lateral de severidade média: a mesma no painel e na aba Edital. */
+  --media-borda: #e08e00;
+  /* Origem do problema (edital ou modelo) e lições aprendidas. */
+  --edital: #6a3fb5;
+  --edital-soft: #f2ecfc;
+  --modelo: #00796b;
+  --modelo-soft: #e3f4f1;
+  --licao: #8a4b16;
+  --licao-soft: #fbefe3;
   --radius: 10px;
   --radius-sm: 6px;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
@@ -35,6 +44,11 @@
 
 * {
   box-sizing: border-box;
+}
+
+/* Reserva o espaço da barra de rolagem: filtrar uma lista não alarga a página. */
+html {
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -54,7 +68,8 @@ code {
   background: var(--neutro-soft);
   padding: 1px 5px;
   border-radius: 4px;
-  word-break: break-all;
+  /* Quebra só quando não cabe (GUIDs longos), sem partir nomes como Pset_DoorCommon. */
+  overflow-wrap: anywhere;
 }
 
 a {
@@ -223,6 +238,12 @@ a {
   max-width: 900px;
 }
 
+.cabecalho-passo .posicionamento {
+  margin-top: 10px;
+  max-width: none;
+  color: var(--text);
+}
+
 .cabecalho-resultados {
   display: flex;
   justify-content: space-between;
@@ -249,6 +270,11 @@ a {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.cartao > p,
+.detalhes-cartao > p {
+  margin: 0;
 }
 
 .cartao-ok {
@@ -555,6 +581,10 @@ textarea {
   color: var(--muted);
 }
 
+.cartao-indisponivel {
+  align-items: flex-start;
+}
+
 .status-acao:empty {
   display: none;
 }
@@ -570,9 +600,6 @@ textarea {
   border-radius: var(--radius);
   background: var(--surface-2);
   cursor: pointer;
-}
-
-.campo-arquivo {
   position: relative;
 }
 
@@ -833,6 +860,20 @@ textarea {
   padding: 6px 10px;
 }
 
+/* Tabelas filtráveis: colunas com largura estável, que não mudam ao esconder linhas. */
+.tabela.lista-filtrada {
+  table-layout: fixed;
+  min-width: 520px;
+}
+
+.tabela th.col-estreita {
+  width: 120px;
+}
+
+.tabela th.col-selo {
+  width: 170px;
+}
+
 .tabela-eir .col-id {
   width: 120px;
 }
@@ -844,15 +885,25 @@ textarea {
 }
 
 .tabela-eir .col-req {
-  min-width: 320px;
+  min-width: 280px;
 }
 
 .tabela-eir .col-map {
-  min-width: 220px;
+  min-width: 190px;
 }
 
+/* A coluna de ações fica sempre visível, mesmo quando a tabela rola na horizontal. */
 .tabela-eir .col-acoes {
   width: 120px;
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--surface);
+  box-shadow: inset 1px 0 0 var(--border);
+}
+
+.tabela-eir th.col-acoes {
+  background: var(--surface-2);
 }
 
 .tabela-eir .col-acoes .btn {
@@ -925,12 +976,6 @@ textarea {
   color: var(--muted);
 }
 
-.col-voc,
-.col-verif {
-  display: table-cell;
-}
-
-.col-voc .badge,
 .col-verif .badge {
   margin-bottom: 4px;
 }
@@ -997,12 +1042,17 @@ textarea {
 }
 
 .barra-filtros select {
-  max-width: 220px;
+  max-width: min(100%, 340px);
 }
 
+/*
+ * A busca cresce só até o teto; a sobra vai para o espaçador. Assim a largura não acompanha
+ * o texto do contador e o placeholder longo cabe inteiro.
+ */
 input[type="search"].campo-busca {
-  flex: 1 1 260px;
-  min-width: 200px;
+  flex: 1 1 440px;
+  max-width: 540px;
+  min-width: 220px;
   padding-left: 32px;
   background: var(--surface)
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%235b6675' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='7' cy='7' r='5'/%3E%3Cpath d='m11 11 4 4'/%3E%3C/svg%3E")
@@ -1010,9 +1060,19 @@ input[type="search"].campo-busca {
 }
 
 .contagem-filtro {
+  margin-left: auto;
+  min-width: 10ch;
+  text-align: right;
   color: var(--muted);
   font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* Busca sozinha numa coluna estreita (glossário, lista da confirmação): ocupa a largura. */
+.modal .campo-busca,
+.revisao-busca .campo-busca {
+  flex: 1 1 auto;
 }
 
 .chip-filtro {
@@ -1042,9 +1102,13 @@ input[type="search"].campo-busca {
 
 /* ------------------------------------------------------------------ classificação dos IR */
 
-.tabela-eir .col-topico {
-  min-width: 140px;
-  max-width: 200px;
+/* Tópico, ambiente e item de checagem numa só coluna. */
+.tabela-eir .col-classif {
+  min-width: 190px;
+}
+
+.col-classif > div + div {
+  margin-top: 8px;
 }
 
 .ir-topico-numero {
@@ -1058,12 +1122,7 @@ input[type="search"].campo-busca {
   color: var(--muted);
 }
 
-.tabela-eir .col-ambiente {
-  min-width: 140px;
-  max-width: 220px;
-}
-
-.col-ambiente .badge {
+.classif-ambiente .badge {
   margin: 0 4px 4px 0;
   white-space: normal;
 }
@@ -1072,10 +1131,6 @@ input[type="search"].campo-busca {
   background: #eef4ec;
   color: #35602f;
   border-color: #d3e4cf;
-}
-
-.tabela-eir .col-item {
-  min-width: 130px;
 }
 
 .item-nome {
@@ -1173,6 +1228,15 @@ input[type="search"].campo-busca {
 .modal-corpo {
   padding: 16px 20px;
   overflow: auto;
+}
+
+.modal-mensagem {
+  margin: 0;
+}
+
+/* Com um modal aberto, a página de trás não rola (a barra fica reservada pelo gutter). */
+body.com-sobreposicao {
+  overflow: hidden;
 }
 
 .form-edicao {
@@ -1291,6 +1355,11 @@ input[type="search"].campo-busca {
   color: var(--muted);
 }
 
+/* Erro, avisos e ações do passo 5: seguem o espaçamento do cartão, sem caixa própria. */
+.verificacao-rodape {
+  display: contents;
+}
+
 /* ------------------------------------------------------------------ resultados */
 
 .downloads {
@@ -1299,9 +1368,10 @@ input[type="search"].campo-busca {
   flex-wrap: wrap;
 }
 
+/* De 4 a 7 indicadores: as colunas se ajustam à quantidade, sem linha pela metade. */
 .indicadores {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 12px;
 }
 
@@ -1364,11 +1434,17 @@ input[type="search"].campo-busca {
   flex-wrap: wrap;
 }
 
+/*
+ * Altura fixa: o conteúdo do detalhe rola por dentro e nunca muda o tamanho do canvas 3D
+ * (o visualizador observa o contêiner e redimensiona câmera e canvas a cada mudança).
+ */
 .grade-resultados {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 400px;
+  grid-template-rows: minmax(0, 1fr);
   gap: 16px;
   align-items: stretch;
+  height: clamp(520px, 70vh, 760px);
 }
 
 .viewer {
@@ -1379,7 +1455,7 @@ input[type="search"].campo-busca {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  min-height: 520px;
+  min-height: 0;
 }
 
 .viewer-barra {
@@ -1438,7 +1514,7 @@ input[type="search"].campo-busca {
 .viewer-area {
   position: relative;
   flex: 1;
-  min-height: 480px;
+  min-height: 0;
 }
 
 .viewer-canvas {
@@ -1496,7 +1572,7 @@ input[type="search"].campo-busca {
   box-shadow: var(--shadow);
   padding: 16px 18px;
   overflow: auto;
-  max-height: 640px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1552,6 +1628,22 @@ input[type="search"].campo-busca {
   flex-direction: column;
   gap: 4px;
   font-size: 0.88rem;
+}
+
+.lista-elementos li {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.lista-elementos li:last-child {
+  border-bottom: 0;
+}
+
+.lista-elementos .link-botao {
+  font-weight: 600;
 }
 
 .lista-elementos small {
@@ -1629,7 +1721,7 @@ input[type="search"].campo-busca {
 }
 
 .apontamento.sev-media {
-  border-left-color: #e08e00;
+  border-left-color: var(--media-borda);
 }
 
 .apontamento.sev-baixa {
@@ -1708,6 +1800,11 @@ input[type="search"].campo-busca {
   background: #1f5f2a;
 }
 
+/* Com a barra fixa de ações no rodapé, os avisos sobem para não cobrir o botão principal. */
+body:has(.acoes-fixas) .toasts {
+  bottom: 84px;
+}
+
 .toast.saindo {
   opacity: 0;
   transform: translateY(8px);
@@ -1715,19 +1812,16 @@ input[type="search"].campo-busca {
 
 /* ------------------------------------------------------------------ responsivo */
 
-@media (max-width: 1280px) {
-  .indicadores {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 1100px) {
+  /* Uma coluna: o visualizador tem altura própria e o detalhe cresce abaixo dele. */
   .grade-resultados {
     grid-template-columns: 1fr;
+    grid-template-rows: none;
+    height: auto;
   }
 
-  .detalhe {
-    max-height: none;
+  .viewer {
+    height: clamp(420px, 60vh, 640px);
   }
 }
 
@@ -1741,8 +1835,7 @@ input[type="search"].campo-busca {
   }
 
   .grade-2,
-  .grade-3,
-  .indicadores {
+  .grade-3 {
     grid-template-columns: 1fr;
   }
 
@@ -1756,15 +1849,6 @@ input[type="search"].campo-busca {
 }
 
 /* ------------------------------------------------------------------ v2: origem, abas, lições, decisões */
-
-:root {
-  --edital: #6a3fb5;
-  --edital-soft: #f2ecfc;
-  --modelo: #00796b;
-  --modelo-soft: #e3f4f1;
-  --licao: #8a4b16;
-  --licao-soft: #fbefe3;
-}
 
 .faixa-demo {
   background: #fff4d6;
@@ -1814,6 +1898,15 @@ input[type="search"].campo-busca {
 
 .apontamento.borda-modelo {
   box-shadow: inset -4px 0 0 var(--modelo);
+}
+
+/* A faixa de origem troca o box-shadow inteiro: a seleção soma o anel à faixa. */
+.apontamento.selecionado.borda-edital {
+  box-shadow: inset -4px 0 0 var(--edital), 0 0 0 1px var(--amber);
+}
+
+.apontamento.selecionado.borda-modelo {
+  box-shadow: inset -4px 0 0 var(--modelo), 0 0 0 1px var(--amber);
 }
 
 .quem-age-edital strong {
@@ -1977,8 +2070,20 @@ input[type="search"].campo-busca {
   margin: 2px 0 0;
 }
 
+/* Sem modelo não há canvas a proteger: o detalhe cresce com o conteúdo, até um limite. */
 .grade-resultados.sem-modelo {
   grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: none;
+  height: auto;
+}
+
+.grade-resultados.sem-modelo .detalhe {
+  max-height: 640px;
+}
+
+/* Status da geração junto do botão, na barra fixa: sempre visível. */
+.acoes-fixas .status-acao {
+  flex: 1 1 280px;
 }
 
 @media (max-width: 720px) {
@@ -2177,6 +2282,10 @@ input[type="search"].campo-busca {
   justify-content: space-between;
 }
 
+.revisao-pdf-cabecalho p {
+  margin: 4px 0 0;
+}
+
 .revisao-pdf-rodape {
   border-top: 1px solid var(--border);
   border-bottom: none;
@@ -2293,7 +2402,11 @@ input[type="search"].campo-busca {
 }
 
 .edital-item.sev-media {
-  border-left-color: #e07b00;
+  border-left-color: var(--media-borda);
+}
+
+.edital-item.sev-baixa {
+  border-left-color: var(--baixa);
 }
 
 .edital-item.borda-edital {
@@ -2339,6 +2452,15 @@ input[type="search"].campo-busca {
     grid-template-rows: minmax(360px, 1fr) auto;
   }
 
+  /* Na confirmação (tela cheia), PDF e lista dividem a altura: os dois rolam por dentro. */
+  .revisao-pdf-corpo {
+    grid-template-rows: minmax(0, 1.2fr) minmax(0, 1fr);
+  }
+
+  .revisao-pdf-corpo .revisao-pdf-visualizador {
+    min-height: 0;
+  }
+
   .aba-edital .edital-grade {
     height: auto;
   }
@@ -2364,4 +2486,213 @@ input[type="search"].campo-busca {
 
 .download-falha:empty {
   display: none;
+}
+
+/* ------------------------------------------------------------------ celular */
+
+@media (max-width: 760px) {
+  /* Campos com menos de 16px fazem o iOS dar zoom na página ao tocar neles. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  .faixa-demo {
+    font-size: 0.78rem;
+  }
+
+  /* Cabeçalho: marca numa linha, ações na de baixo. */
+  .topo {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  .marca p {
+    display: none;
+  }
+
+  .topo-acoes {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .selo-modo {
+    width: 100%;
+  }
+
+  .topo-acoes .btn {
+    padding: 6px 10px;
+  }
+
+  .conteudo {
+    padding-top: 16px;
+  }
+
+  .cabecalho-passo h2 {
+    font-size: 1.15rem;
+  }
+
+  .cartao {
+    padding: 14px;
+  }
+
+  /* Filtros: busca e selects na linha inteira (lado a lado, o texto cortaria). */
+  .barra-filtros > .campo-busca,
+  .barra-filtros select {
+    flex: 1 1 100%;
+    max-width: none;
+    min-width: 0;
+  }
+
+  .barra-filtros .espaco {
+    display: none;
+  }
+
+  .campo-inline {
+    flex-wrap: wrap;
+  }
+
+  .campo-inline select {
+    max-width: 100%;
+  }
+
+  /* Abas numa faixa que rola na horizontal, em vez de três linhas empilhadas. */
+  .abas {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .aba {
+    flex: none;
+    white-space: nowrap;
+  }
+
+  .acoes-fixas .btn {
+    flex: 1 1 auto;
+  }
+
+  /* Tabela de IR vira uma lista de cartões, um por requisito. */
+  .tabela-eir,
+  .tabela-eir tbody,
+  .tabela-eir tr,
+  .tabela-eir td {
+    display: block;
+    width: 100%;
+  }
+
+  .tabela-eir thead {
+    display: none;
+  }
+
+  .tabela-eir tr {
+    border-bottom: 1px solid var(--border-forte);
+    padding: 6px 0;
+  }
+
+  .tabela-eir td {
+    border-bottom: 0;
+    padding: 6px 12px;
+    min-width: 0;
+  }
+
+  .tabela-eir td[data-rotulo]::before {
+    content: attr(data-rotulo);
+    display: block;
+    margin-bottom: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+
+  .tabela-eir .col-id {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .tabela-eir .col-id > * {
+    margin: 0;
+  }
+
+  .tabela-eir .col-acoes {
+    position: static;
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    box-shadow: none;
+    background: transparent;
+  }
+
+  .tabela-eir .col-acoes .btn {
+    width: auto;
+    flex: 1 1 0;
+    margin: 0;
+    padding: 8px;
+  }
+
+  .tabela-eir .col-classif > div {
+    display: inline-block;
+    margin: 0 12px 4px 0;
+    vertical-align: top;
+  }
+
+  /* Confirmação dos tópicos ocupa a tela toda. */
+  .revisao-pdf {
+    padding: 0;
+  }
+
+  .revisao-pdf-caixa {
+    border-radius: 0;
+  }
+
+  .revisao-pdf-cabecalho p {
+    display: none;
+  }
+
+  .revisao-pdf-rodape {
+    flex-wrap: wrap;
+  }
+
+  .revisao-pdf-rodape .btn {
+    flex: 1 1 auto;
+    white-space: normal;
+  }
+
+  .revisao-pdf-rodape .espaco {
+    display: none;
+  }
+
+  .pdf-so-leitura {
+    display: none;
+  }
+
+  .modal-fundo {
+    padding: 8px;
+  }
+
+  .modal-cabecalho,
+  .modal-rodape,
+  .modal-corpo {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .toasts {
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .toast {
+    max-width: none;
+  }
 }

@@ -12,7 +12,12 @@ class GeminiJsonClient:
         self.modelo = modelo
         self._cliente = genai.Client(
             api_key=api_key,
-            http_options=types.HttpOptions(timeout=int(timeout_s * 1000)),
+            http_options=types.HttpOptions(
+                timeout=int(timeout_s * 1000),
+                # Falhas temporárias (limite de taxa, servidor ocupado) ganham mais 2 tentativas
+                # antes de a análise cair nas regras determinísticas.
+                retry_options=types.HttpRetryOptions(attempts=3),
+            ),
         )
 
     def complete(self, *, sistema: str, prompt: str, schema: type[BaseModel]) -> tuple[str, Uso]:

@@ -1,21 +1,20 @@
-"""API HTTP do EditalCheck (FastAPI). Contrato em docs/api.md.
+"""API HTTP do EditalCheck (FastAPI). Contrato em docs/api.md."""
 
-As rotas de requisitos de informação (IR, Information Requirements) usam o prefixo
-``/ir``. As rotas antigas com ``/ri`` e ``/eir`` continuam aceitas, fora da
-documentação, para compatibilidade.
-"""
-
+import logging
 import mimetypes
 import re
 import unicodedata
-from collections.abc import Callable
+import uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from editalcheck import __version__
 from editalcheck.application.errors import (
@@ -27,12 +26,17 @@ from editalcheck.application.errors import (
 from editalcheck.application.use_cases.gerar_ids import ARQUIVO_IDS
 from editalcheck.application.use_cases.gerar_relatorio import ARQUIVO_BCF, ARQUIVO_HTML
 from editalcheck.application.use_cases.importar_documentos import ARQUIVO_EDITAL, ARQUIVO_MODELO
+from editalcheck.application.use_cases.importar_licoes import MAX_DOCUMENTOS
 from editalcheck.bootstrap import Container, configurar_logs, construir
 from editalcheck.config import carregar
 from editalcheck.domain.versao_ifc import VERSOES_IDS
 from editalcheck.entrypoints.api import dto
 
+logger = logging.getLogger("editalcheck.api")
 TAMANHO_BLOCO = 1024 * 1024
+MB = 1024 * 1024
+# Edital e modelo podem chegar no limite de cada arquivo; as lições somam pouco.
+FOLGA_LICOES_MB = 50
 STATUS_ERRO = {NaoEncontradoError: 404, ConflitoError: 409, EntradaInvalidaError: 422}
 TIPO_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 ARQUIVO_LICOES_DEMO = "licoes_aprendidas.txt"
@@ -43,14 +47,74 @@ AVISO_IA = (
 )
 
 
-async def _ler_limitado(arquivo: UploadFile, limite_mb: int) -> bytes:
-    limite = limite_mb * 1024 * 1024
+_REQUEST_ID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+_CAMINHOS_DOCS = ("/docs", "/redoc")
+# O app usa wasm (web-ifc), workers (pdf.js e Fragments) e atributos style; nada de script inline.
+CSP = (
+    "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; "
+    "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; "
+    "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
+    "frame-ancestors 'self'"
+)
+CABECALHOS_SEGURANCA = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "SAMEORIGIN",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+}
+
+
+class CabecalhosMiddleware:
+    """Request id em toda resposta (para correlacionar com o log) e cabeçalhos de segurança.
+
+    ASGI puro, e não ``BaseHTTPMiddleware``: não interfere nas tarefas em segundo plano.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        recebido = dict(scope["headers"]).get(b"x-request-id", b"").decode("latin-1")
+        request_id = recebido if _REQUEST_ID.match(recebido) else uuid.uuid4().hex[:16]
+        scope.setdefault("state", {})["request_id"] = request_id
+        documentacao = scope["path"].startswith(_CAMINHOS_DOCS)
+
+        async def enviar(mensagem: Message) -> None:
+            if mensagem["type"] == "http.response.start":
+                cabecalhos = MutableHeaders(scope=mensagem)
+                cabecalhos["X-Request-ID"] = request_id
+                for nome, valor in CABECALHOS_SEGURANCA.items():
+                    cabecalhos.setdefault(nome, valor)
+                html = cabecalhos.get("content-type", "").startswith("text/html")
+                if html and not documentacao:
+                    cabecalhos.setdefault("Content-Security-Policy", CSP)
+            await send(mensagem)
+
+        await self.app(scope, receive, enviar)
+
+
+class _Orcamento:
+    """Bytes que ainda cabem na requisição (soma de todos os arquivos enviados)."""
+
+    def __init__(self, total_mb: int) -> None:
+        self.total_mb = total_mb
+        self.restante = total_mb * MB
+
+
+async def _ler_limitado(arquivo: UploadFile, limite_mb: int, orcamento: _Orcamento) -> bytes:
+    limite = limite_mb * MB
     partes: list[bytes] = []
     total = 0
     while bloco := await arquivo.read(TAMANHO_BLOCO):
         total += len(bloco)
+        orcamento.restante -= len(bloco)
         if total > limite:
             raise HTTPException(413, f"Arquivo acima do limite de {limite_mb} MB.")
+        if orcamento.restante < 0:
+            raise HTTPException(413, f"Os arquivos somam mais de {orcamento.total_mb} MB.")
         partes.append(bloco)
     return b"".join(partes)
 
@@ -81,16 +145,34 @@ def criar_app(container: Container | None = None) -> FastAPI:
         configurar_logs(settings.nivel_log)
         container = construir(settings)
     c = container
+    docs = c.settings.docs_ativos
     app = FastAPI(
         title="EditalCheck API",
         version=__version__,
         description="Verificador bidirecional Edital × IFC (IFC, IDS, BCF, bSDD).",
+        docs_url="/docs" if docs else None,
+        redoc_url="/redoc" if docs else None,
+        openapi_url="/openapi.json" if docs else None,
     )
+    app.add_middleware(CabecalhosMiddleware)
 
     @app.exception_handler(EditalCheckError)
     async def _erro_negocio(_: Request, erro: EditalCheckError) -> JSONResponse:
         status = next((s for tipo, s in STATUS_ERRO.items() if isinstance(erro, tipo)), 400)
         return JSONResponse({"detail": str(erro)}, status_code=status)
+
+    @app.exception_handler(Exception)
+    async def _erro_inesperado(request: Request, erro: Exception) -> JSONResponse:
+        """Erro não previsto: JSON com um código para o suporte; o detalhe fica só no log."""
+        codigo = getattr(request.state, "request_id", None) or uuid.uuid4().hex[:16]
+        logger.error(
+            "Erro inesperado [%s] %s %s", codigo, request.method, request.url.path, exc_info=erro
+        )
+        return JSONResponse(
+            {"detail": f"Erro interno do servidor. Código para o suporte: {codigo}."},
+            status_code=500,
+            headers={"X-Request-ID": codigo},
+        )
 
     def projeto_ou_404(projeto_id: str):
         projeto = c.repositorio.get(projeto_id)
@@ -98,20 +180,12 @@ def criar_app(container: Container | None = None) -> FastAPI:
             raise NaoEncontradoError("Projeto não encontrado (pode ter expirado ou sido apagado).")
         return projeto
 
-    def rota_ir(metodo: str, caminho: str, **opcoes: Any) -> Callable:
-        """Registra ``/ir`` (documentada) e os aliases antigos ``/ri`` e ``/eir`` (ocultos)."""
-        registrar = getattr(app, metodo)
-
-        def decorador(funcao: Callable) -> Callable:
-            registrar(caminho, **opcoes)(funcao)
-            for antigo in ("/ri", "/eir"):
-                alias = caminho.replace("/ir", antigo, 1)
-                registrar(alias, include_in_schema=False, **opcoes)(funcao)
-            return funcao
-
-        return decorador
-
     # ------------------------------------------------------------------ configuração
+
+    @app.get("/api/saude")
+    def saude() -> dict[str, str]:
+        """Usado pelo healthcheck do contêiner: o processo responde."""
+        return {"status": "ok", "versao": __version__}
 
     @app.get("/api/config")
     def config() -> dict[str, Any]:
@@ -143,14 +217,24 @@ def criar_app(container: Container | None = None) -> FastAPI:
         versao_ifc: str | None = Form(None),
     ) -> dict[str, Any]:
         limite = c.settings.limite_upload_mb
-        pdf = await _ler_limitado(edital, limite)
-        ifc = await _ler_limitado(modelo, limite) if modelo and modelo.filename else None
+        if licoes and len(licoes) > MAX_DOCUMENTOS:
+            raise EntradaInvalidaError(
+                f"Envie até {MAX_DOCUMENTOS} documentos de lições aprendidas."
+            )
+        orcamento = _Orcamento(2 * limite + FOLGA_LICOES_MB)
+        pdf = await _ler_limitado(edital, limite, orcamento)
+        ifc = await _ler_limitado(modelo, limite, orcamento) if modelo and modelo.filename else None
         documentos = [
-            (await _ler_limitado(arquivo, limite), Path(arquivo.filename or "licoes.txt").name)
+            (
+                await _ler_limitado(arquivo, limite, orcamento),
+                Path(arquivo.filename or "licoes.txt").name,
+            )
             for arquivo in licoes or []
             if arquivo.filename
         ]
-        projeto = c.importar.executar(
+        # Ler PDF e IFC e chamar o LLM bloqueia: roda numa thread para não travar o servidor.
+        projeto = await run_in_threadpool(
+            c.importar.executar,
             pdf,
             Path(edital.filename or "edital.pdf").name,
             ifc,
@@ -224,11 +308,19 @@ def criar_app(container: Container | None = None) -> FastAPI:
         projeto_id: str, licoes: list[UploadFile] = File(...)
     ) -> dict[str, Any]:
         limite = c.settings.limite_upload_mb
+        if len(licoes) > MAX_DOCUMENTOS:
+            raise EntradaInvalidaError(
+                f"Envie até {MAX_DOCUMENTOS} documentos de lições aprendidas."
+            )
+        orcamento = _Orcamento(limite + FOLGA_LICOES_MB)
         documentos = [
-            (await _ler_limitado(arquivo, limite), Path(arquivo.filename or "licoes.txt").name)
+            (
+                await _ler_limitado(arquivo, limite, orcamento),
+                Path(arquivo.filename or "licoes.txt").name,
+            )
             for arquivo in licoes
         ]
-        resultado = c.importar_licoes.executar(projeto_id, documentos)
+        resultado = await run_in_threadpool(c.importar_licoes.executar, projeto_id, documentos)
         projeto = projeto_ou_404(projeto_id)
         return {
             "licoes": dto.licoes(projeto),
@@ -251,19 +343,19 @@ def criar_app(container: Container | None = None) -> FastAPI:
 
     # ------------------------------------------------------------------ requisitos de informação
 
-    @rota_ir("post", "/api/projetos/{projeto_id}/ir")
+    @app.post("/api/projetos/{projeto_id}/ir")
     def gerar_ir(projeto_id: str, corpo: dto.CriarEirRequest) -> dict[str, Any]:
         resultado = c.gerar_eir.executar(projeto_id, corpo.topicos)
         return dto.eir_resposta(resultado.eir, resultado.avisos, resultado.descartados)
 
-    @rota_ir("get", "/api/projetos/{projeto_id}/ir")
+    @app.get("/api/projetos/{projeto_id}/ir")
     def obter_ir(projeto_id: str) -> dict[str, Any]:
         projeto = projeto_ou_404(projeto_id)
         if projeto.eir is None:
             raise NaoEncontradoError("Os requisitos de informação (IR) ainda não foram gerados.")
         return dto.eir_resposta(projeto.eir)
 
-    @rota_ir("patch", "/api/projetos/{projeto_id}/ir/requisitos/{requisito_id}")
+    @app.patch("/api/projetos/{projeto_id}/ir/requisitos/{requisito_id}")
     def revisar_requisito(
         projeto_id: str, requisito_id: str, corpo: dto.PatchRequisitoRequest
     ) -> dict[str, Any]:
@@ -278,14 +370,15 @@ def criar_app(container: Container | None = None) -> FastAPI:
             case _:
                 if not corpo.campos:
                     raise EntradaInvalidaError("Informe os campos a editar.")
-                requisito = revisar.editar(projeto_id, requisito_id, corpo.campos)
+                campos = corpo.campos.model_dump(exclude_unset=True)
+                requisito = revisar.editar(projeto_id, requisito_id, campos)
         return dto.requisito(requisito)
 
-    @rota_ir("post", "/api/projetos/{projeto_id}/ir/aprovar-todos")
+    @app.post("/api/projetos/{projeto_id}/ir/aprovar-todos")
     def aprovar_todos(projeto_id: str, corpo: dto.AprovarTodosRequest) -> dict[str, Any]:
         return dto.eir_resposta(c.revisar_eir.aprovar_todos(projeto_id, corpo.somente_verificaveis))
 
-    @rota_ir("post", "/api/projetos/{projeto_id}/ir/requisitos", status_code=201)
+    @app.post("/api/projetos/{projeto_id}/ir/requisitos", status_code=201)
     def adicionar_de_lacuna(
         projeto_id: str, corpo: dto.AdicionarLacunaRequest
     ) -> list[dict[str, Any]]:
@@ -302,8 +395,6 @@ def criar_app(container: Container | None = None) -> FastAPI:
         ]
 
     @app.get("/api/projetos/{projeto_id}/ir.xlsx")
-    @app.get("/api/projetos/{projeto_id}/ri.xlsx", include_in_schema=False)
-    @app.get("/api/projetos/{projeto_id}/eir.xlsx", include_in_schema=False)
     def exportar_ir(projeto_id: str) -> Response:
         projeto = projeto_ou_404(projeto_id)
         if projeto.eir is None:

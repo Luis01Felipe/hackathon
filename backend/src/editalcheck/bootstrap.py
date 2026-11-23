@@ -1,6 +1,7 @@
 """Raiz de composição: liga portas a adaptadores conforme a configuração."""
 
 import logging
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from editalcheck.adapters.audit.jsonl_log import AuditLogNulo, JsonLinesAuditLog
@@ -32,6 +33,7 @@ from editalcheck.adapters.rules.extractor import RulesRequirementExtractor
 from editalcheck.adapters.rules.licoes import RulesLessonChecker, RulesLessonExtractor
 from editalcheck.adapters.storage.fs_repository import FsProjectRepository
 from editalcheck.adapters.storage.memory_repository import MemoryProjectRepository
+from editalcheck.application.concorrencia import travas_projeto
 from editalcheck.application.consumo import MedidorConsumo
 from editalcheck.application.ports import AuditLog, ProjectRepository
 from editalcheck.application.use_cases.excluir_projeto import ExcluirProjeto
@@ -45,6 +47,7 @@ from editalcheck.application.use_cases.gerar_relatorio import (
     PrecosLlm,
 )
 from editalcheck.application.use_cases.importar_documentos import (
+    ARQUIVO_EDITAL,
     ARQUIVO_MODELO,
     ImportarDocumentos,
 )
@@ -80,15 +83,16 @@ def configurar_logs(nivel: str) -> None:
         logging.getLogger(ruidoso).setLevel(logging.WARNING)
 
 
-def _repositorio(settings: Settings, medidor: MedidorConsumo) -> ProjectRepository:
+Limpeza = Callable[[str, Mapping[str, bytes]], None]
+
+
+def _repositorio(settings: Settings, limpezas: list[Limpeza]) -> ProjectRepository:
     if settings.modo_dados == "persistente":
         return FsProjectRepository(settings.pasta_dados)
 
-    def ao_expirar(projeto_id: str, arquivos: dict[str, bytes]) -> None:
-        modelo = arquivos.get(ARQUIVO_MODELO)
-        if modelo is not None:
-            abrir.esquecer(modelo)
-        medidor.esquecer(projeto_id)
+    def ao_expirar(projeto_id: str, arquivos: Mapping[str, bytes]) -> None:
+        for limpar in limpezas:
+            limpar(projeto_id, arquivos)
 
     return MemoryProjectRepository(ttl_s=settings.ttl_min * 60, ao_expirar=ao_expirar)
 
@@ -107,7 +111,9 @@ def construir(settings: Settings) -> Container:
 
     medidor = MedidorConsumo()
     localizador = PyMuPdfLocalizador()
-    repositorio = _repositorio(settings, medidor)
+    # Projeto apagado ou expirado: o que ficou em memória sobre ele também sai.
+    limpezas: list[Limpeza] = []
+    repositorio = _repositorio(settings, limpezas)
     auditoria = _auditoria(settings)
     ifc_reader = IfcOpenShellModelReader()
     dicionario = (
@@ -178,6 +184,20 @@ def construir(settings: Settings) -> Container:
     importar_licoes = ImportarLicoes(
         repositorio, TextoOuPdfReader(), extrator_licoes, licoes_regras, auditoria
     )
+    exportar_edital = ExportarEdital(
+        repositorio, PyMuPdfEditalAnnotator(), XlsxClarificationExporter()
+    )
+    localizar = LocalizarNoEdital(repositorio, localizador)
+
+    def liberar_memoria(projeto_id: str, arquivos: Mapping[str, bytes]) -> None:
+        if (modelo := arquivos.get(ARQUIVO_MODELO)) is not None:
+            abrir.esquecer(modelo)
+        localizar.esquecer(projeto_id, arquivos.get(ARQUIVO_EDITAL))
+        exportar_edital.esquecer(projeto_id)
+        medidor.esquecer(projeto_id)
+        travas_projeto.esquecer(projeto_id)
+
+    limpezas.append(liberar_memoria)
     return Container(
         settings=settings,
         repositorio=repositorio,
@@ -221,11 +241,9 @@ def construir(settings: Settings) -> Container:
             IfcOpenShellGeometry(),
         ),
         decidir=DecidirApontamento(repositorio, gerar_relatorio, auditoria),
-        exportar_edital=ExportarEdital(
-            repositorio, PyMuPdfEditalAnnotator(), XlsxClarificationExporter()
-        ),
-        localizar=LocalizarNoEdital(repositorio, localizador),
-        excluir=ExcluirProjeto(repositorio, medidor, auditoria, abrir.esquecer),
+        exportar_edital=exportar_edital,
+        localizar=localizar,
+        excluir=ExcluirProjeto(repositorio, medidor, auditoria, liberar_memoria),
         exportador_eir=XlsxEirExporter(),
         documentos_contexto=referencias.documentos if referencias else (),
     )

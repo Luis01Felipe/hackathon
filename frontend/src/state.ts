@@ -28,6 +28,8 @@ export interface Ctx {
   estado: Estado;
   irPara: (passo: Passo) => void;
   atualizar: () => void;
+  /** Redesenha só se o usuário ainda estiver no passo (resposta que chegou depois de ele sair). */
+  atualizarNoPasso: (passo: Passo) => void;
 }
 
 export function estadoInicial(config: Config | null = null): Estado {

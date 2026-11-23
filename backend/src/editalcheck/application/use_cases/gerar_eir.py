@@ -7,6 +7,7 @@ propostos (RF-105), que passam pela aprovação humana como os demais.
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 
+from editalcheck.application.concorrencia import por_projeto
 from editalcheck.application.consumo import ExecutorComContexto, em_projeto
 from editalcheck.application.errors import EntradaInvalidaError, NaoEncontradoError
 from editalcheck.application.observability import agora, etapa, logger
@@ -35,8 +36,10 @@ from editalcheck.domain.models import (
     Requisito,
     TermoDicionario,
     TipoFaceta,
+    TipoRestricao,
     Topico,
 )
+from editalcheck.domain.restricoes import problema_no_padrao
 from editalcheck.domain.topics import expandir_selecao, paginas_do_topico
 from editalcheck.domain.vocabulary import classificar_origem
 
@@ -148,6 +151,13 @@ class ValidadorRequisitos:
             else:
                 tipo_dado = canonico
 
+        restricao = requisito.restricao
+        if restricao and restricao.tipo == TipoRestricao.PADRAO:
+            problema = next((p for v in restricao.valores if (p := problema_no_padrao(v))), None)
+            if problema:
+                avisos.append(f"Restrição por padrão removida: {problema}")
+                restricao = None
+
         faceta = requisito.faceta
         if verificavel and faceta is None:
             nao_verificavel(
@@ -166,6 +176,7 @@ class ValidadorRequisitos:
             requisito,
             ifc_class=classe,
             tipo_dado=tipo_dado,
+            restricao=restricao,
             verificavel_por_ids=verificavel,
             motivo_nao_verificavel=None if verificavel else motivo,
         )
@@ -246,7 +257,7 @@ class GerarEir:
                 for termo in resultado:
                     termos.setdefault(termo.uri, termo)
         if consultas and not termos and getattr(self._dicionario, "falhou", False):
-            avisos.append("bSDD indisponível: o EIR usa só os Psets oficiais.")
+            avisos.append("bSDD indisponível: os IR usam só os Psets oficiais.")
         return list(termos.values())
 
     def _extrair(
@@ -267,6 +278,7 @@ class GerarEir:
                     f"LLM indisponível no tópico {topico.numero}: usando regras determinísticas.",
                 )
 
+    @por_projeto
     def executar(self, projeto_id: str, topico_ids: Sequence[str]) -> ResultadoEir:
         with em_projeto(projeto_id):
             return self._executar(projeto_id, topico_ids)
@@ -303,10 +315,11 @@ class GerarEir:
                 validado = self._validador.validar(requisito, projeto, contexto, paginas)
                 if validado is None:
                     descartados += 1
+                    # O trecho não vai para o log: o edital pode ter dados do cliente.
                     logger.info(
-                        "S2: citação descartada (p. %s): %.80s",
+                        "S2: citação descartada (tópico %s, p. %s)",
+                        topico.id,
                         requisito.evidencia.pagina,
-                        requisito.evidencia.trecho,
                     )
                     continue
                 chave = _chave(validado)
