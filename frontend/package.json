@@ -15,6 +15,7 @@
     "@thatopen/components": "3.6.0",
     "@thatopen/fragments": "3.6.1",
     "camera-controls": "3.1.2",
+    "pdfjs-dist": "6.5.438",
     "three": "0.187.0",
     "web-ifc": "0.0.80"
   },

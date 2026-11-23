@@ -1,8 +1,12 @@
-// Passo 4 — Geração do IDS a partir do EIR aprovado (código determinístico, não LLM).
+// Passo 4 — Geração do IDS a partir dos requisitos de informação aprovados (código, não LLM).
 import { api, urls } from "../api";
 import type { Ctx } from "../state";
+import type { VersaoIfc } from "../types";
 import { badge, botao, carregando, erro, h, limpar, linkDownload, mensagemErro, num, vazio } from "../ui";
 import { metrica } from "./upload";
+
+/** Escolha de escopo e versão, mantida entre redesenhos da tela. */
+const escolha: { projeto: string | null; marco: string; versao: string } = { projeto: null, marco: "", versao: "" };
 
 export function renderIds(ctx: Ctx): HTMLElement {
   const { estado } = ctx;
@@ -17,19 +21,50 @@ export function renderIds(ctx: Ctx): HTMLElement {
         "p",
         null,
         "O IDS 1.0 é montado por código a partir dos requisitos aprovados e verificáveis. O LLM não escreve XML. ",
-        "Cada especificação leva o ID do requisito, e o arquivo é recarregado no ifctester como teste de integridade.",
+        "Escolha se o IDS cobre o contrato inteiro ou um marco de entrega, e em qual versão do IFC. ",
+        "O arquivo é recarregado no ifctester como teste de integridade.",
       ),
     ),
   );
   const projeto = estado.projeto;
   const eir = estado.eir;
   if (!projeto || !eir) {
-    secao.append(vazio("Gere e revise o EIR no passo 3."));
+    secao.append(vazio("Gere e revise os requisitos de informação (RI) no passo 3."));
     return secao;
   }
-  const paraIds = eir.requisitos.filter(
+  const selectMarco = h(
+    "select",
+    { id: "ids-marco", "aria-label": "Escopo do IDS" },
+    h("option", { value: "" }, "Contrato inteiro"),
+    projeto.marcos.map((m) => h("option", { value: m.id }, `Marco: ${m.nome}`)),
+  );
+  if (escolha.projeto !== projeto.id) {
+    escolha.projeto = projeto.id;
+    escolha.marco = estado.ids?.marco_id ?? projeto.ids_marco_id ?? "";
+    escolha.versao = estado.ids?.versao_ifc ?? "";
+  }
+  selectMarco.value = escolha.marco;
+  const versoes = estado.config?.versoes_ifc ?? ["IFC2X3", "IFC4", "IFC4X3_ADD2"];
+  const selectVersao = h(
+    "select",
+    { id: "ids-versao", "aria-label": "Versão IFC do IDS" },
+    h("option", { value: "" }, projeto.sem_modelo ? "Versão esperada" : `Versão do modelo (${projeto.schema_ifc})`),
+    versoes.map((v) => h("option", { value: v }, v)),
+  );
+  selectVersao.value = escolha.versao;
+  selectMarco.addEventListener("change", () => {
+    escolha.marco = selectMarco.value;
+    ctx.atualizar();
+  });
+  selectVersao.addEventListener("change", () => {
+    escolha.versao = selectVersao.value;
+  });
+  const aprovados = eir.requisitos.filter(
     (r) => (r.status === "aprovado" || r.status === "editado") && r.verificavel_por_ids,
   );
+  const doEscopo = () =>
+    aprovados.filter((r) => !selectMarco.value || !r.marcos.length || r.marcos.includes(selectMarco.value));
+  const paraIds = doEscopo();
   const naoVerificaveis = eir.requisitos.filter(
     (r) => (r.status === "aprovado" || r.status === "editado") && !r.verificavel_por_ids,
   );
@@ -40,7 +75,11 @@ export function renderIds(ctx: Ctx): HTMLElement {
     limpar(status);
     status.append(carregando("Gerando o IDS e validando contra o XSD oficial…"));
     try {
-      estado.ids = await api.gerarIds(projeto.id);
+      estado.ids = await api.gerarIds(
+        projeto.id,
+        selectMarco.value || null,
+        (selectVersao.value || null) as VersaoIfc | null,
+      );
       ctx.atualizar();
     } catch (e) {
       limpar(status);
@@ -65,9 +104,14 @@ export function renderIds(ctx: Ctx): HTMLElement {
         h(
           "dl",
           { class: "metricas" },
+          metrica("Escopo", ids.escopo),
+          metrica("Versão IFC", ids.versao_ifc),
           metrica("Especificações", num(ids.especificacoes)),
           metrica("Requisitos incluídos", num(ids.requisitos_incluidos.length)),
         ),
+        ids.avisos.length
+          ? h("div", { class: "alerta alerta-aviso" }, ids.avisos.map((a) => h("p", null, a)))
+          : null,
         ids.requisitos_incluidos.length
           ? h("p", { class: "lista-ids" }, ids.requisitos_incluidos.map((id) => badge(id, "neutro")))
           : null,
@@ -98,9 +142,15 @@ export function renderIds(ctx: Ctx): HTMLElement {
       h(
         "dl",
         { class: "metricas" },
-        metrica("Aprovados e verificáveis", num(paraIds.length)),
+        metrica("Aprovados e verificáveis no escopo", num(paraIds.length)),
         metrica("Aprovados não verificáveis (manual)", num(naoVerificaveis.length)),
-        metrica("Schema do modelo", projeto.schema_ifc),
+        metrica(projeto.sem_modelo ? "Schema esperado" : "Schema do modelo", projeto.schema_ifc),
+      ),
+      h(
+        "div",
+        { class: "barra-ferramentas" },
+        h("label", { class: "campo-inline", for: selectMarco.id }, "Escopo: ", selectMarco),
+        h("label", { class: "campo-inline", for: selectVersao.id }, "Versão IFC: ", selectVersao),
       ),
       paraIds.length
         ? h(
@@ -108,19 +158,17 @@ export function renderIds(ctx: Ctx): HTMLElement {
             { class: "lista-compacta" },
             paraIds.map((r) => h("li", null, h("strong", null, r.id), " · ", r.descricao)),
           )
-        : h("div", { class: "alerta alerta-aviso" }, "Nenhum requisito aprovado e verificável. Volte ao EIR."),
+        : h("div", { class: "alerta alerta-aviso" }, "Nenhum requisito aprovado e verificável neste escopo. Volte aos RI."),
       h(
         "div",
         { class: "acoes" },
-        botao("← Revisão do EIR", () => ctx.irPara(3), "fantasma"),
+        botao("← Requisitos (RI)", () => ctx.irPara(3), "fantasma"),
         h("span", { class: "espaco" }),
-        !estado.ids
-          ? h(
-              "button",
-              { type: "button", class: "btn btn-primario", disabled: paraIds.length === 0, onclick: () => void gerar() },
-              "Gerar IDS",
-            )
-          : null,
+        h(
+          "button",
+          { type: "button", class: "btn btn-primario", disabled: paraIds.length === 0, onclick: () => void gerar() },
+          estado.ids ? "Gerar de novo com este escopo" : "Gerar IDS",
+        ),
       ),
       status,
     ),

@@ -87,3 +87,37 @@ class RecomendacaoLLM(BaseModel):
     referencias: list[str] = Field(
         default_factory=list, description="Rótulos copiados exatamente da lista fornecida"
     )
+
+
+class LicaoLLM(BaseModel):
+    titulo: str = Field(description="Título curto da lição, até 10 palavras")
+    regra: str = Field(description="A regra aprendida em uma ou duas frases, no imperativo")
+    contexto: str = Field(default="", description="Tipo de obra ou situação em que vale")
+    termos_elemento: list[str] = Field(
+        default_factory=list,
+        description="Nomes de ambientes ou elementos afetados, como aparecem num modelo "
+        '(ex.: "sala de baterias")',
+    )
+    ifc_class: str | None = Field(default=None, description="Classe IFC afetada, se houver")
+    evidencia: EvidenciaLLM
+
+
+class LicoesLLM(BaseModel):
+    licoes: list[LicaoLLM]
+
+
+class VerificacaoLicaoLLM(BaseModel):
+    indice: int
+    explicita: bool
+    evidencia: EvidenciaLLM | None = Field(
+        default=None, description="Frase do edital que explicita a lição (se explicita)"
+    )
+    trecho_relacionado: EvidenciaLLM | None = Field(
+        default=None, description="Frase do edital que trata do mesmo tema sem a lição"
+    )
+    justificativa: str
+    redacao_sugerida: str = ""
+
+
+class VerificacoesLicoesLLM(BaseModel):
+    itens: list[VerificacaoLicaoLLM]

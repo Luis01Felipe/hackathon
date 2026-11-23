@@ -1,4 +1,5 @@
-// Passo 3 — Revisão humana do EIR: aceitar, editar ou rejeitar cada requisito.
+// Passo 3 — Revisão humana dos requisitos de informação (RI): aceitar, editar ou rejeitar
+// cada requisito, cadastrar marcos de entrega e conferir as lições aprendidas.
 import { api, urls } from "../api";
 import {
   CARDINALIDADE,
@@ -15,7 +16,10 @@ import type {
   AcaoRequisito,
   Cardinalidade,
   CamposEdicao,
+  Evidencia,
   Faceta,
+  MarcoEntrega,
+  ProjetoResumo,
   Requisito,
   Restricao,
   TipoRestricao,
@@ -64,11 +68,12 @@ export function renderEir(ctx: Ctx): HTMLElement {
     h(
       "div",
       { class: "cabecalho-passo" },
-      h("h2", null, "3. Revise o EIR"),
+      h("h2", null, "3. Revise os requisitos de informação (RI)"),
       h(
         "p",
         null,
-        "Cada requisito mostra o trecho original do edital, conferido literalmente contra o texto da página. ",
+        "Os RI são o contrato de dados da contratação: o que o modelo deve conter em cada entrega. ",
+        "Cada requisito mostra o trecho original do edital (ou da lição aprendida), conferido literalmente. ",
         "Nenhum requisito vira IDS sem a sua aprovação.",
       ),
     ),
@@ -79,9 +84,9 @@ export function renderEir(ctx: Ctx): HTMLElement {
     return secao;
   }
   if (!estado.eir) {
-    secao.append(carregando("Carregando o EIR…"));
+    secao.append(carregando("Carregando os requisitos de informação…"));
     api
-      .eir(projeto.id)
+      .ri(projeto.id)
       .then((eir) => {
         estado.eir = eir;
         ctx.atualizar();
@@ -110,6 +115,7 @@ export function renderEir(ctx: Ctx): HTMLElement {
       chip("Aprovados", aprovados, "sucesso"),
       chip("Rejeitados", contar((r) => r.status === "rejeitado"), "alta"),
       chip("Não verificáveis por IDS", contar((r) => !r.verificavel_por_ids), "media"),
+      chip("De lições aprendidas", contar((r) => r.gerado_por === "licao"), "licao"),
       chip("Entram no IDS", paraIds, "info"),
     );
   };
@@ -142,14 +148,28 @@ export function renderEir(ctx: Ctx): HTMLElement {
       corpoTabela.append(h("tr", null, h("td", { colspan: "6" }, vazio("Nenhum requisito com esses filtros."))));
       return;
     }
-    for (const req of visiveis) corpoTabela.append(linhaRequisito(req, agir, (r) => editar(r)));
+    for (const req of visiveis) corpoTabela.append(linhaRequisito(req, agir, (r) => editar(r), marcosPorId()));
   };
 
+  const marcosPorId = () => new Map(projeto.marcos.map((m) => [m.id, m.nome]));
   const editar = (req: Requisito) => {
-    abrirEdicao(req, async (campos) => {
+    abrirEdicao(req, projeto.marcos, async (campos) => {
       await agir(req, { acao: "editar", campos });
     });
   };
+  const blocoMarcos = h("div", null);
+  const desenharMarcos = () => {
+    limpar(blocoMarcos);
+    blocoMarcos.append(
+      editorMarcos(projeto, async (marcos) => {
+        projeto.marcos = marcos;
+        estado.ids = null;
+        estado.eir = await api.ri(projeto.id);
+        ctx.atualizar();
+      }),
+    );
+  };
+  desenharMarcos();
 
   const selectStatus = h(
     "select",
@@ -189,6 +209,8 @@ export function renderEir(ctx: Ctx): HTMLElement {
 
   append(secao, [
     resumo,
+    blocoLicoes(projeto),
+    blocoMarcos,
     avisos(eir.avisos, "Avisos da extração"),
     eir.descartados > 0
       ? h(
@@ -205,7 +227,7 @@ export function renderEir(ctx: Ctx): HTMLElement {
       h("label", { class: "check-inline", for: cbNaoVerificaveis.id }, cbNaoVerificaveis, "Somente não verificáveis"),
       h("span", { class: "espaco" }),
       botao("Aceitar todos os verificáveis", () => void aprovarTodos(), "sucesso"),
-      linkDownload("Baixar EIR (.xlsx)", urls.eirXlsx(projeto.id)),
+      linkDownload("Baixar RI (.xlsx)", urls.riXlsx(projeto.id)),
     ),
     status,
     h(
@@ -221,7 +243,7 @@ export function renderEir(ctx: Ctx): HTMLElement {
             "tr",
             null,
             h("th", null, "ID"),
-            h("th", null, "Requisito e trecho do edital"),
+            h("th", null, "Requisito e trecho de origem"),
             h("th", null, "Mapeamento IFC"),
             h("th", null, "Vocabulário"),
             h("th", null, "Verificável por IDS"),
@@ -262,16 +284,19 @@ function chip(rotuloTexto: string, valor: number, variante = "neutro"): HTMLElem
   return h("div", { class: `chip chip-${variante}` }, h("strong", null, String(valor)), h("span", null, rotuloTexto));
 }
 
+export function citacao(ev: Evidencia, clausula?: string | null): string {
+  const local = [`p. ${ev.pagina}`, clausula ? `item ${clausula}` : null].filter(Boolean).join(" · ");
+  return `${ev.fonte === "licoes" ? "Lições aprendidas" : "Edital"}, ${local}`;
+}
+
 function linhaRequisito(
   req: Requisito,
   agir: (req: Requisito, acao: AcaoRequisito) => Promise<void>,
   editar: (req: Requisito) => void,
+  marcos: Map<string, string>,
 ): HTMLElement {
   const aprovado = req.status === "aprovado" || req.status === "editado";
   const restricao = descreverRestricao(req.restricao);
-  const local = [`p. ${req.evidencia.pagina}`, req.clausula ? `item ${req.clausula}` : null]
-    .filter(Boolean)
-    .join(" · ");
   return h(
     "tr",
     { class: `linha-req status-${req.status}` },
@@ -281,13 +306,28 @@ function linhaRequisito(
       h("strong", null, req.id),
       badge(rotulo(STATUS_REQUISITO, req.status), VARIANTE_STATUS[req.status] ?? "neutro"),
       req.sugerido_por_lacuna ? badge("Sugerido por lacuna", "info") : null,
-      req.gerado_por && req.gerado_por !== "llm" ? h("small", { class: "texto-suave" }, `origem: ${req.gerado_por}`) : null,
+      req.licao_id ? badge(`Lição ${req.licao_id}`, "licao", "Requisito proposto a partir de uma lição aprendida") : null,
+      req.gerado_por && !["llm", "licao"].includes(req.gerado_por)
+        ? h("small", { class: "texto-suave" }, `origem: ${req.gerado_por}`)
+        : null,
     ),
     h(
       "td",
       { class: "col-req" },
       h("p", { class: "req-descricao" }, req.descricao),
-      h("blockquote", { class: "trecho" }, req.evidencia.trecho, h("cite", null, `Edital, ${local}`)),
+      h(
+        "blockquote",
+        { class: `trecho${req.evidencia.fonte === "licoes" ? " trecho-licao" : ""}` },
+        req.evidencia.trecho,
+        h("cite", null, citacao(req.evidencia, req.clausula)),
+      ),
+      h(
+        "div",
+        { class: "marcos-req" },
+        req.marcos.length
+          ? req.marcos.map((m) => badge(marcos.get(m) ?? m, "neutro", "Marco de entrega"))
+          : h("small", { class: "texto-suave" }, "Vale para todos os marcos de entrega"),
+      ),
       req.avisos.length ? h("ul", { class: "avisos-req" }, req.avisos.map((a) => h("li", null, a))) : null,
     ),
     h(
@@ -336,7 +376,11 @@ function linhaRequisito(
   );
 }
 
-function abrirEdicao(req: Requisito, salvar: (campos: CamposEdicao) => Promise<void>): void {
+function abrirEdicao(
+  req: Requisito,
+  marcos: MarcoEntrega[],
+  salvar: (campos: CamposEdicao) => Promise<void>,
+): void {
   const texto = (valor: string | null | undefined) => valor ?? "";
   const nulo = (valor: string) => (valor.trim() === "" ? null : valor.trim());
 
@@ -385,6 +429,19 @@ function abrirEdicao(req: Requisito, salvar: (campos: CamposEdicao) => Promise<v
   const motivo = h("input", { type: "text", id: "ed-motivo", placeholder: "Por que não dá para verificar no modelo?" });
   motivo.value = texto(req.motivo_nao_verificavel);
 
+  const caixasMarcos = marcos.map((m) => {
+    const cb = h("input", { type: "checkbox", id: `ed-marco-${m.id}`, value: m.id });
+    cb.checked = req.marcos.includes(m.id);
+    return cb;
+  });
+  const linhaMarcos = marcos.length
+    ? h(
+        "fieldset",
+        { class: "campo marcos-edicao" },
+        h("legend", null, "Marcos de entrega (nenhum marcado = todos)"),
+        marcos.map((m, i) => h("label", { class: "check-inline", for: caixasMarcos[i].id }, caixasMarcos[i], m.nome)),
+      )
+    : null;
   const linhaValores = h("div", { class: "campo" }, h("label", { for: valores.id }, "Valores"), valores);
   const linhaIntervalo = h(
     "div",
@@ -412,7 +469,7 @@ function abrirEdicao(req: Requisito, salvar: (campos: CamposEdicao) => Promise<v
   const formulario = h(
     "form",
     { class: "form-edicao", onsubmit: (ev: Event) => ev.preventDefault() },
-    h("blockquote", { class: "trecho" }, req.evidencia.trecho, h("cite", null, `Edital, p. ${req.evidencia.pagina}`)),
+    h("blockquote", { class: "trecho" }, req.evidencia.trecho, h("cite", null, citacao(req.evidencia))),
     campo("Descrição", descricao),
     h("div", { class: "grade-2" }, campo("Classe IFC", ifcClass), campo("PredefinedType", predefined)),
     h("div", { class: "grade-2" }, campo("Faceta IDS", faceta), campo("Cardinalidade", cardinalidade)),
@@ -422,6 +479,7 @@ function abrirEdicao(req: Requisito, salvar: (campos: CamposEdicao) => Promise<v
     linhaIntervalo,
     h("label", { class: "check-inline", for: verificavel.id }, verificavel, "Verificável por IDS"),
     campo("Motivo (se não verificável)", motivo),
+    linhaMarcos,
     mensagem,
   );
 
@@ -467,6 +525,7 @@ function abrirEdicao(req: Requisito, salvar: (campos: CamposEdicao) => Promise<v
       cardinalidade: cardinalidade.value as Cardinalidade,
       verificavel_por_ids: verificavel.checked,
       motivo_nao_verificavel: verificavel.checked ? null : nulo(motivo.value),
+      marcos: caixasMarcos.filter((cb) => cb.checked).map((cb) => cb.value),
     };
     salvarBotao.disabled = true;
     try {
@@ -477,4 +536,104 @@ function abrirEdicao(req: Requisito, salvar: (campos: CamposEdicao) => Promise<v
       salvarBotao.disabled = false;
     }
   });
+}
+
+function blocoLicoes(projeto: ProjetoResumo): HTMLElement | null {
+  if (!projeto.licoes.length) return null;
+  return h(
+    "details",
+    { class: "cartao detalhes-cartao" },
+    h(
+      "summary",
+      null,
+      h("strong", null, `Lições aprendidas (${projeto.licoes.length})`),
+      " · viram requisitos propostos quando dá para verificar no modelo e são procuradas no edital na verificação",
+    ),
+    h(
+      "ul",
+      { class: "lista-licoes" },
+      projeto.licoes.map((l) =>
+        h(
+          "li",
+          null,
+          badge(l.id, "licao"),
+          " ",
+          h("strong", null, l.titulo),
+          h("div", { class: "texto-suave" }, l.regra),
+          h("small", { class: "texto-suave" }, `${l.documento}, p. ${l.evidencia.pagina} · lida por ${l.extraida_por === "llm" ? "IA (citação conferida)" : "regras"}`),
+        ),
+      ),
+    ),
+    h(
+      "p",
+      { class: "texto-suave" },
+      "Salvaguarda: as lições só acrescentam verificações. Elas nunca removem nem rebaixam apontamentos.",
+    ),
+  );
+}
+
+function editorMarcos(projeto: ProjetoResumo, aoSalvar: (marcos: MarcoEntrega[]) => Promise<void>): HTMLElement {
+  const linhas: { id: string | null; input: HTMLInputElement }[] = projeto.marcos.map((m) => {
+    const input = h("input", { type: "text", value: m.nome, "aria-label": `Nome do marco ${m.id}`, maxlength: "80" });
+    return { id: m.id, input };
+  });
+  const lista = h("div", { class: "marcos-lista" });
+  const mensagem = h("div", null);
+  const desenhar = () => {
+    limpar(lista);
+    linhas.forEach((linha, indice) => {
+      lista.append(
+        h(
+          "div",
+          { class: "marco-linha" },
+          h("span", { class: "texto-suave" }, linha.id ?? "novo"),
+          linha.input,
+          botao("Remover", () => {
+            linhas.splice(indice, 1);
+            desenhar();
+          }, "fantasma"),
+        ),
+      );
+    });
+  };
+  desenhar();
+  const salvar = async () => {
+    limpar(mensagem);
+    const marcos = linhas
+      .map((l) => ({ id: l.id, nome: l.input.value.trim() }))
+      .filter((m) => m.nome);
+    try {
+      const salvos = await api.definirMarcos(projeto.id, marcos);
+      toast("Marcos de entrega salvos.", "sucesso");
+      await aoSalvar(salvos);
+    } catch (e) {
+      mensagem.append(erro(mensagemErro(e)));
+    }
+  };
+  return h(
+    "details",
+    { class: "cartao detalhes-cartao" },
+    h(
+      "summary",
+      null,
+      h("strong", null, `Marcos de entrega (${projeto.marcos.length})`),
+      " · o IDS pode cobrir o contrato inteiro ou um marco",
+    ),
+    h(
+      "p",
+      { class: "texto-suave" },
+      "Os marcos citados no edital foram detectados automaticamente. Ajuste a lista e, ao editar um requisito, marque em quais entregas ele vale.",
+    ),
+    lista,
+    h(
+      "div",
+      { class: "acoes" },
+      botao("Adicionar marco", () => {
+        linhas.push({ id: null, input: h("input", { type: "text", placeholder: "Ex.: Projeto executivo", maxlength: "80" }) });
+        desenhar();
+      }, "secundario"),
+      botao("Salvar marcos", () => void salvar(), "primario"),
+    ),
+    mensagem,
+  );
 }

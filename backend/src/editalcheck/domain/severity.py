@@ -2,7 +2,13 @@
 
 from dataclasses import dataclass, field
 
-from editalcheck.domain.models import Cardinalidade, Destinatario, Severidade, TipoApontamento
+from editalcheck.domain.models import (
+    Cardinalidade,
+    Destinatario,
+    OrigemInconsistencia,
+    Severidade,
+    TipoApontamento,
+)
 
 CLASSES_SEGURANCA_PADRAO = frozenset(
     {
@@ -57,6 +63,15 @@ def contradicao() -> Severidade:
     return Severidade.MEDIA
 
 
+def licao_nao_explicita(tem_clausula_relacionada: bool) -> Severidade:
+    """Alta quando uma cláusula genérica do edital induz o erro que a lição evita."""
+    return Severidade.ALTA if tem_clausula_relacionada else Severidade.MEDIA
+
+
+def duplicidade() -> Severidade:
+    return Severidade.BAIXA
+
+
 def qualidade_modelo(
     proporcao_proxies: float, guid_duplicado: bool, config: ConfigSeveridade
 ) -> Severidade:
@@ -65,10 +80,20 @@ def qualidade_modelo(
     return Severidade.MEDIA
 
 
+TIPOS_DO_MODELO = frozenset({TipoApontamento.NAO_CONFORMIDADE, TipoApontamento.QUALIDADE_MODELO})
+
+
 def destinatario(tipo: TipoApontamento) -> Destinatario:
-    if tipo in (TipoApontamento.NAO_CONFORMIDADE, TipoApontamento.QUALIDADE_MODELO):
+    if tipo in TIPOS_DO_MODELO:
         return Destinatario.PROJETISTA
     return Destinatario.CONTRATANTE
+
+
+def origem(tipo: TipoApontamento) -> OrigemInconsistencia:
+    """Edital ou modelo: regra determinística, a mesma de ``Apontamento.origem``."""
+    if tipo in TIPOS_DO_MODELO:
+        return OrigemInconsistencia.MODELO
+    return OrigemInconsistencia.EDITAL
 
 
 ORDEM_SEVERIDADE = {Severidade.ALTA: 0, Severidade.MEDIA: 1, Severidade.BAIXA: 2}

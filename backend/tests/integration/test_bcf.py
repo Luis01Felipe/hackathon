@@ -9,7 +9,9 @@ from editalcheck.bootstrap import Container
 from editalcheck.domain.models import TipoApontamento
 
 
-def test_bcf_tem_um_viewpoint_por_elemento(container: Container, arquivos_demo) -> None:
+def test_bcf_tem_um_viewpoint_por_elemento(
+    container: Container, arquivos_demo, tmp_path: Path
+) -> None:
     edital, modelo = arquivos_demo
     projeto = container.importar.executar(edital, "edital.pdf", modelo, "modelo.ifc")
     topicos = [t.id for t in projeto.topicos if t.numero in ("5.1", "5.3", "5.5")]
@@ -17,13 +19,20 @@ def test_bcf_tem_um_viewpoint_por_elemento(container: Container, arquivos_demo) 
     container.revisar_eir.aprovar_todos(projeto.id)
     verificacao = container.verificar.executar(container.verificar.iniciar(projeto.id).id)
     relatorio = container.repositorio.get_relatorio(verificacao.id)
-    caminho = container.repositorio.relatorio_file(verificacao.id, "resultado.bcf")
-    assert relatorio is not None and caminho is not None
+    conteudo = container.repositorio.read_relatorio_file(verificacao.id, "resultado.bcf")
+    assert relatorio is not None and conteudo is not None
+    caminho = tmp_path / "resultado.bcf"
+    caminho.write_bytes(conteudo)
 
     esperados = {
         a.id: a
         for a in relatorio.apontamentos
-        if a.tipo in (TipoApontamento.NAO_CONFORMIDADE, TipoApontamento.QUALIDADE_MODELO)
+        if a.tipo
+        in (
+            TipoApontamento.NAO_CONFORMIDADE,
+            TipoApontamento.QUALIDADE_MODELO,
+            TipoApontamento.LICAO_NAO_EXPLICITA,
+        )
         and a.elementos
     }
     nomes = zipfile.ZipFile(caminho).namelist()

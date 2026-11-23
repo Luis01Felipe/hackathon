@@ -12,7 +12,13 @@ export type TipoApontamento =
   | "item_ausente"
   | "contradicao"
   | "lacuna_cobertura"
-  | "qualidade_modelo";
+  | "qualidade_modelo"
+  | "licao_nao_explicita"
+  | "duplicidade";
+export type OrigemInconsistencia = "edital" | "modelo";
+export type FonteEvidencia = "edital" | "licoes";
+export type StatusDecisao = "pendente" | "aceito" | "rejeitado" | "em_discussao" | "dispensado";
+export type VersaoIfc = "IFC2X3" | "IFC4" | "IFC4X3_ADD2";
 export type Severidade = "alta" | "media" | "baixa";
 export type Destinatario = "projetista" | "contratante";
 export type StatusChecklist = "presente" | "parcial" | "ausente";
@@ -26,7 +32,56 @@ export interface Config {
   modelo_llm: string | null;
   bsdd_ativo: boolean;
   demo_disponivel: boolean;
+  demo_com_licoes: boolean;
   limite_upload_mb: number;
+  modo_dados: "efemero" | "persistente";
+  ttl_min: number | null;
+  disponivel_ate: string | null;
+  aviso_ia: string | null;
+  documentos_contexto: string[];
+  versoes_ifc: VersaoIfc[];
+}
+
+export interface Evidencia {
+  pagina: number;
+  trecho: string;
+  fonte: FonteEvidencia;
+}
+
+/** Retângulo numa página do PDF, em frações da página (0 a 1, origem no canto superior esquerdo). */
+export interface RegiaoPdf {
+  pagina: number;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+export interface LocalApontamento {
+  apontamento_id: string;
+  localizado: boolean;
+  /** Páginas citadas no edital, mesmo quando o trecho exato não foi localizado. */
+  paginas: number[];
+  regioes: RegiaoPdf[];
+}
+
+export interface LicaoAprendida {
+  id: string;
+  titulo: string;
+  regra: string;
+  evidencia: Evidencia;
+  documento: string;
+  contexto: string;
+  termos_elemento: string[];
+  ifc_class: string | null;
+  extraida_por: string;
+}
+
+export interface MarcoEntrega {
+  id: string;
+  nome: string;
+  descricao: string;
+  evidencia: Evidencia | null;
 }
 
 export interface ClasseResumo {
@@ -49,6 +104,12 @@ export interface ProjetoResumo {
   ids_gerado: boolean;
   avisos: string[];
   modo_ia: string;
+  sem_modelo: boolean;
+  licoes: LicaoAprendida[];
+  documentos_licoes: string[];
+  marcos: MarcoEntrega[];
+  ids_marco_id: string | null;
+  ids_versao_ifc: VersaoIfc | null;
 }
 
 export interface Topico {
@@ -63,13 +124,8 @@ export interface Topico {
   resumo: string | null;
   /** Tópico de nível superior (ex.: o "5" do "5.1"). */
   pai_id: string | null;
-  /** Seção que só agrupa subtópicos: não tem texto próprio e não é enviada ao EIR. */
+  /** Seção que só agrupa subtópicos: não tem texto próprio e não é enviada aos requisitos de informação (RI). */
   agrupador: boolean;
-}
-
-export interface Evidencia {
-  pagina: number;
-  trecho: string;
 }
 
 export interface Restricao {
@@ -101,6 +157,8 @@ export interface Requisito {
   clausula: string | null;
   gerado_por: string;
   avisos: string[];
+  marcos: string[];
+  licao_id: string | null;
 }
 
 export interface EirResposta {
@@ -125,6 +183,7 @@ export interface CamposEdicao {
   cardinalidade?: Cardinalidade;
   verificavel_por_ids?: boolean;
   motivo_nao_verificavel?: string | null;
+  marcos?: string[];
 }
 
 export type AcaoRequisito =
@@ -138,7 +197,11 @@ export interface IdsResposta {
   valido: boolean;
   erros: string[];
   requisitos_incluidos: string[];
-  url: string;
+  avisos: string[];
+  escopo: string;
+  marco_id: string | null;
+  versao_ifc: VersaoIfc;
+  url: string | null;
 }
 
 export interface Verificacao {
@@ -158,11 +221,20 @@ export interface Referencia {
   uri: string | null;
 }
 
+export interface Posicao {
+  centro: [number, number, number];
+  minimo: [number, number, number];
+  maximo: [number, number, number];
+}
+
 export interface ElementoRef {
   global_id: string;
   step_id: number | null;
   classe: string | null;
   nome: string | null;
+  nome_longo?: string | null;
+  pavimento?: string | null;
+  posicao?: Posicao | null;
 }
 
 export interface PropriedadeSugerida {
@@ -189,6 +261,54 @@ export interface Apontamento {
   classe_ifc: string | null;
   propriedades_sugeridas: PropriedadeSugerida[];
   detalhe: string;
+  licao_id: string | null;
+  origem: OrigemInconsistencia;
+  verificacao_manual: boolean;
+}
+
+export interface Decisao {
+  apontamento_id: string;
+  status: StatusDecisao;
+  comentario: string;
+  autor: string;
+  data: string;
+}
+
+export interface VerificacaoLicao {
+  licao_id: string;
+  explicita: boolean;
+  evidencia: Evidencia | null;
+  trecho_relacionado: Evidencia | null;
+  justificativa: string;
+  redacao_sugerida: string;
+  avaliado_por: string;
+}
+
+export interface ConsumoEtapa {
+  etapa: string;
+  chamadas: number;
+  chamadas_cache: number;
+  tokens_entrada: number;
+  tokens_saida: number;
+  duracao_s: number;
+}
+
+export interface Custo {
+  tokens_entrada: number;
+  tokens_saida: number;
+  usd: number | null;
+  preco_entrada_usd_mtok: number | null;
+  preco_saida_usd_mtok: number | null;
+  fonte_preco: string;
+}
+
+export interface TempoManual {
+  medido: boolean;
+  horas: number | null;
+  tarefa: string;
+  amostra: string;
+  metodo: string;
+  data: string;
 }
 
 export interface FalhaElemento {
@@ -254,6 +374,10 @@ export interface Indicadores {
   apontamentos_por_severidade: Record<string, number>;
   apontamentos_por_destinatario: Record<string, number>;
   apontamentos_por_tipo: Record<string, number>;
+  apontamentos_por_origem: Record<string, number>;
+  verificacao_manual: number;
+  licoes_total: number;
+  licoes_nao_explicitas: number;
 }
 
 export interface EstadoElementoItem {
@@ -280,4 +404,14 @@ export interface Relatorio {
   estado_elementos: EstadoElementoItem[];
   avisos: string[];
   duracoes_s: Record<string, number>;
+  escopo: string;
+  versao_ifc_ids: string;
+  sem_modelo: boolean;
+  licoes: LicaoAprendida[];
+  verificacoes_licoes: VerificacaoLicao[];
+  decisoes: Decisao[];
+  consumo: ConsumoEtapa[];
+  custo: Custo | null;
+  tempo_manual: TempoManual | null;
+  contexto_usado: string[];
 }

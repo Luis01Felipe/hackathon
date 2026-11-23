@@ -1,13 +1,18 @@
-"""Exportação dos apontamentos do modelo em BCF 2.1 (RF-55).
+"""Exportação dos apontamentos do modelo em BCF 2.1 (RF-55, RF-170).
 
 Usa o módulo ``bcf`` do IfcOpenShell (bcf-client). Cada apontamento com
-elementos (não conformidade e qualidade do modelo) vira um tópico com:
+elementos vira um tópico com:
 
 - um viewpoint de visão geral, com todos os elementos selecionados (quando o
   apontamento tem mais de um elemento);
 - **um viewpoint por elemento**, com só aquele elemento selecionado e
   destacado em vermelho, e a câmera enquadrando a caixa envolvente dele;
-- um comentário por viewpoint, que diz qual elemento é e por que falhou.
+- um comentário por viewpoint com o elemento, o pavimento, a **coordenada XYZ**
+  (centro e caixa envolvente, em metros, no sistema do projeto), a falha, o
+  que o edital exige e como agir.
+
+O BCF 2.1 não tem campo de coordenada no tópico. A coordenada vai no texto do
+comentário e na câmera do viewpoint, sem sair do padrão.
 
 O primeiro viewpoint de cada tópico se chama ``viewpoint.bcfv``, o nome
 padrão que ferramentas do BCF 2.0 procuram. Os demais usam o GUID.
@@ -19,10 +24,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-import ifcopenshell
-import ifcopenshell.geom
-import ifcopenshell.util.placement as util_placement
-import ifcopenshell.util.unit as util_unit
 import numpy as np
 from bcf.geometry import camera_vectors_from_target_position
 from bcf.v2 import model as mdl
@@ -32,21 +33,35 @@ from bcf.v2.visinfo import VisualizationInfoHandler, build_camera_from_vectors
 from bcf.xml_parser import XmlParserSerializer
 from xsdata.models.datatype import XmlDateTime
 
-from editalcheck.domain.models import Apontamento, Relatorio, Severidade, TipoApontamento
+from editalcheck.domain.findings import exigencia as texto_exigencia
+from editalcheck.domain.models import (
+    Apontamento,
+    CaixaEnvolvente,
+    ModeloResumo,
+    Relatorio,
+    Requisito,
+    Severidade,
+    TipoApontamento,
+)
 
-TIPOS_BCF = (TipoApontamento.NAO_CONFORMIDADE, TipoApontamento.QUALIDADE_MODELO)
+TIPOS_BCF = (
+    TipoApontamento.NAO_CONFORMIDADE,
+    TipoApontamento.QUALIDADE_MODELO,
+    TipoApontamento.LICAO_NAO_EXPLICITA,
+)
 AUTOR = "EditalCheck"
 VIEWPOINT_PADRAO = "viewpoint.bcfv"
 COR_DESTAQUE = "FF0000"  # vermelho (RGB em hexadecimal, BCF 2.1)
 DIRECAO_CAMERA = np.array([1.0, -1.0, 0.9]) / np.linalg.norm([1.0, -1.0, 0.9])
 DISTANCIA_MINIMA_M = 4.0
 FOLGA_ENQUADRAMENTO = 1.3
-MEIA_CAIXA_SEM_GEOMETRIA_M = 0.5
 PRIORIDADE = {Severidade.ALTA: "Alta", Severidade.MEDIA: "Média", Severidade.BAIXA: "Baixa"}
 ROTULO_TIPO = {
     TipoApontamento.NAO_CONFORMIDADE: "Não conformidade",
     TipoApontamento.QUALIDADE_MODELO: "Qualidade do modelo",
+    TipoApontamento.LICAO_NAO_EXPLICITA: "Lição aprendida",
 }
+ROTULO_ORIGEM = {"modelo": "Corrigir no modelo", "edital": "Corrigir no edital"}
 
 
 @dataclass(frozen=True)
@@ -63,6 +78,12 @@ class _Caixa:
         return float(np.linalg.norm(self.maximo - self.minimo))
 
     @staticmethod
+    def de(caixa: CaixaEnvolvente | None) -> "_Caixa | None":
+        if caixa is None:
+            return None
+        return _Caixa(np.array(caixa.minimo, dtype=float), np.array(caixa.maximo, dtype=float))
+
+    @staticmethod
     def unir(caixas: list["_Caixa"]) -> "_Caixa | None":
         if not caixas:
             return None
@@ -76,16 +97,45 @@ class _Elemento:
     global_id: str
     classe: str
     nome: str
+    pavimento: str | None
     motivo: str
-    caixa: _Caixa | None
+    caixa: CaixaEnvolvente | None
+
+    @property
+    def caixa_camera(self) -> _Caixa | None:
+        return _Caixa.de(self.caixa)
+
+
+def _m(valor: float) -> str:
+    return f"{valor:.2f}".replace(".", ",")
+
+
+def texto_coordenada(caixa: CaixaEnvolvente | None) -> str:
+    """Ex.: "X 12,40 · Y 3,15 · Z 1,05 m (caixa: 11,95..12,85 × ...)"."""
+    if caixa is None:
+        return "Coordenada indisponível (elemento sem geometria nem posicionamento)."
+    x, y, z = caixa.centro
+    faixas = " × ".join(
+        f"{_m(a)}..{_m(b)}" for a, b in zip(caixa.minimo, caixa.maximo, strict=True)
+    )
+    return f"Centro X {_m(x)} · Y {_m(y)} · Z {_m(z)} m (caixa envolvente {faixas} m)"
+
+
+def _exigencia(requisito: Requisito | None) -> str:
+    if requisito is None:
+        return ""
+    return f"Exigido ({requisito.id}): {texto_exigencia(requisito)}."
 
 
 def _descricao(apontamento: Apontamento) -> str:
-    partes = [apontamento.titulo]
+    partes = [apontamento.titulo, f"Origem: {ROTULO_ORIGEM[apontamento.origem.value]}."]
     if apontamento.requisito_id:
         partes.append(f"Requisito: {apontamento.requisito_id}")
     for evidencia in apontamento.evidencias_edital:
-        partes.append(f'Edital, p. {evidencia.pagina}: "{evidencia.trecho}"')
+        fonte = "Lições aprendidas" if evidencia.fonte.value == "licoes" else "Edital"
+        partes.append(f'{fonte}, p. {evidencia.pagina}: "{evidencia.trecho}"')
+    if apontamento.detalhe:
+        partes.append(f"Detalhe: {apontamento.detalhe}")
     if apontamento.como_agir:
         partes.append(f"Como agir: {apontamento.como_agir}")
     if apontamento.por_que:
@@ -94,41 +144,11 @@ def _descricao(apontamento: Apontamento) -> str:
         partes.append("Referências: " + "; ".join(r.rotulo for r in apontamento.referencias))
     if apontamento.gerado_por_ia:
         partes.append("Texto gerado por IA: revisar.")
+    partes.append("GlobalIds: " + ", ".join(apontamento.elementos[:50]))
     partes.append(
         f"Viewpoints: {len(apontamento.elementos)} elemento(s), um viewpoint para cada um."
     )
     return "\n".join(partes)
-
-
-class _Geometria:
-    """Caixa envolvente de cada elemento em coordenadas do mundo (metros)."""
-
-    def __init__(self, modelo: ifcopenshell.file) -> None:
-        self._modelo = modelo
-        self._escala = util_unit.calculate_unit_scale(modelo)
-        self._configuracao = ifcopenshell.geom.settings()
-        self._configuracao.set("use-world-coords", True)
-
-    def elemento(self, global_id: str) -> ifcopenshell.entity_instance | None:
-        try:
-            return self._modelo.by_guid(global_id)
-        except RuntimeError:
-            return None
-
-    def caixa(self, elemento: ifcopenshell.entity_instance) -> _Caixa | None:
-        try:
-            forma = ifcopenshell.geom.create_shape(self._configuracao, elemento)
-            vertices = np.asarray(forma.geometry.verts, dtype=float).reshape(-1, 3)
-            if len(vertices):
-                return _Caixa(vertices.min(axis=0), vertices.max(axis=0))
-        except Exception:  # elemento sem representação 3D ou geometria inválida
-            pass
-        posicionamento = getattr(elemento, "ObjectPlacement", None)
-        if posicionamento is None:
-            return None
-        origem = util_placement.get_local_placement(posicionamento)[:3, 3] * self._escala
-        folga = np.full(3, MEIA_CAIXA_SEM_GEOMETRIA_M)
-        return _Caixa(origem - folga, origem + folga)
 
 
 def _camera(caixa: _Caixa | None) -> mdl.PerspectiveCamera:
@@ -171,8 +191,7 @@ class BcfClientWriter:
     def __init__(self) -> None:
         self._xml = XmlParserSerializer()
 
-    def write(self, relatorio: Relatorio, ifc_path: str) -> bytes:
-        geometria = _Geometria(ifcopenshell.open(ifc_path))
+    def write(self, relatorio: Relatorio, modelo: ModeloResumo) -> bytes:
         bcf = BcfXml.create_new(f"EditalCheck — {relatorio.modelo_arquivo}", self._xml)
         indice_topico = 0
         for apontamento in relatorio.apontamentos:
@@ -191,10 +210,23 @@ class BcfClientWriter:
             topico.topic.priority = PRIORIDADE[apontamento.severidade]
             topico.topic.index = indice_topico
             topico.topic.labels = [
-                r for r in (ROTULO_TIPO[apontamento.tipo], apontamento.requisito_id) if r
+                r
+                for r in (
+                    ROTULO_ORIGEM[apontamento.origem.value],
+                    ROTULO_TIPO[apontamento.tipo],
+                    apontamento.requisito_id,
+                    apontamento.licao_id,
+                )
+                if r
             ]
+            requisito = next(
+                (r for r in relatorio.requisitos if r.id == apontamento.requisito_id), None
+            )
             self._viewpoints(
-                topico, apontamento, self._elementos(relatorio, apontamento, geometria)
+                topico,
+                apontamento,
+                self._elementos(relatorio, apontamento, modelo),
+                _exigencia(requisito),
             )
         with tempfile.TemporaryDirectory() as pasta:
             destino = Path(pasta) / "resultado.bcf"
@@ -204,29 +236,34 @@ class BcfClientWriter:
         return conteudo
 
     def _elementos(
-        self, relatorio: Relatorio, apontamento: Apontamento, geometria: _Geometria
+        self, relatorio: Relatorio, apontamento: Apontamento, modelo: ModeloResumo
     ) -> list[_Elemento]:
         motivos = _motivos(relatorio, apontamento)
+        por_guid = {e.global_id: e for e in modelo.elementos}
         elementos: list[_Elemento] = []
         for global_id in dict.fromkeys(apontamento.elementos):
-            entidade = geometria.elemento(global_id)
+            info = por_guid.get(global_id)
+            nome = (info.nome_longo or info.nome) if info else None
             elementos.append(
                 _Elemento(
                     global_id=global_id,
-                    classe=entidade.is_a() if entidade else "elemento",
-                    nome=(getattr(entidade, "Name", None) or "sem nome")
-                    if entidade
-                    else "sem nome",
+                    classe=info.classe if info else "elemento",
+                    nome=nome or "sem nome",
+                    pavimento=info.pavimento if info else None,
                     motivo=motivos.get(global_id, apontamento.titulo),
-                    caixa=geometria.caixa(entidade) if entidade else None,
+                    caixa=relatorio.caixas.get(global_id),
                 )
             )
         return elementos
 
     def _viewpoints(
-        self, topico: TopicHandler, apontamento: Apontamento, elementos: list[_Elemento]
+        self,
+        topico: TopicHandler,
+        apontamento: Apontamento,
+        elementos: list[_Elemento],
+        exigencia: str,
     ) -> None:
-        geral = _Caixa.unir([e.caixa for e in elementos if e.caixa])
+        geral = _Caixa.unir([c for e in elementos if (c := e.caixa_camera)])
         if len(elementos) > 1:
             self._adicionar(
                 topico,
@@ -235,11 +272,25 @@ class BcfClientWriter:
             )
         total = len(elementos)
         for posicao, elemento in enumerate(elementos, start=1):
+            linhas = [
+                f"Elemento {posicao} de {total}: {elemento.nome} ({elemento.classe}).",
+                f"GlobalId: {elemento.global_id}.",
+                f"Pavimento: {elemento.pavimento or 'não informado'}.",
+                f"Localização: {texto_coordenada(elemento.caixa)}.",
+                f"Falha: {elemento.motivo}",
+            ]
+            if exigencia:
+                linhas.append(exigencia)
+            if apontamento.evidencias_edital:
+                evidencia = apontamento.evidencias_edital[0]
+                fonte = "Lições aprendidas" if evidencia.fonte.value == "licoes" else "Edital"
+                linhas.append(f'{fonte}, p. {evidencia.pagina}: "{evidencia.trecho[:240]}"')
+            if apontamento.como_agir:
+                linhas.append(f"Como agir: {apontamento.como_agir}")
             self._adicionar(
                 topico,
-                _visualizacao([elemento.global_id], elemento.caixa or geral),
-                f"Elemento {posicao} de {total}: {elemento.nome} ({elemento.classe}, GlobalId "
-                f"{elemento.global_id}). {elemento.motivo}",
+                _visualizacao([elemento.global_id], elemento.caixa_camera or geral),
+                "\n".join(linhas),
             )
 
     def _adicionar(

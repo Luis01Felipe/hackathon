@@ -1,4 +1,5 @@
-"""Caso de uso: revisão humana do EIR (RF-25) e ciclo fechado de lacunas (RF-59)."""
+"""Caso de uso: revisão humana dos requisitos de informação (RF-25), marcos de entrega
+(RF-130) e ciclo fechado de lacunas (RF-59)."""
 
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
@@ -7,12 +8,14 @@ from typing import Any
 from editalcheck.application.errors import ConflitoError, EntradaInvalidaError, NaoEncontradoError
 from editalcheck.application.ports import ProjectRepository
 from editalcheck.application.use_cases.gerar_eir import ValidadorRequisitos
+from editalcheck.domain import marcos as marcos_domain
 from editalcheck.domain.findings import exigencia
 from editalcheck.domain.models import (
     Apontamento,
     Cardinalidade,
     Eir,
     Evidencia,
+    MarcoEntrega,
     Projeto,
     Requisito,
     Restricao,
@@ -35,9 +38,12 @@ CAMPOS_EDITAVEIS = frozenset(
         "cardinalidade",
         "verificavel_por_ids",
         "motivo_nao_verificavel",
+        "marcos",
     }
 )
+MAX_MARCOS = 20
 TRECHO_LACUNA = "Sugerido pela análise de cobertura do EditalCheck: cláusula a incluir no edital."
+SEM_RI = "Os requisitos de informação (RI) ainda não foram gerados."
 
 
 def _texto_opcional(valor: Any) -> str | None:
@@ -79,6 +85,10 @@ def _converter(campos: Mapping[str, Any]) -> dict[str, Any]:
                     convertidos[chave] = _restricao(valor)
                 case "verificavel_por_ids":
                     convertidos[chave] = bool(valor)
+                case "marcos":
+                    if not isinstance(valor, list | tuple):
+                        raise EntradaInvalidaError("Marcos devem ser uma lista de IDs.")
+                    convertidos[chave] = tuple(dict.fromkeys(str(v) for v in valor))
                 case "descricao":
                     texto = _texto_opcional(valor)
                     if not texto:
@@ -107,7 +117,7 @@ class RevisarEir:
         if projeto is None:
             raise NaoEncontradoError("Projeto não encontrado.")
         if projeto.eir is None:
-            raise ConflitoError("O EIR ainda não foi gerado.")
+            raise ConflitoError(SEM_RI)
         return projeto, projeto.eir
 
     def _salvar(self, projeto: Projeto, eir: Eir, requisitos: Sequence[Requisito]) -> None:
@@ -140,7 +150,12 @@ class RevisarEir:
         atual = eir.requisito(requisito_id)
         if atual is None:
             raise NaoEncontradoError(f"Requisito {requisito_id} não encontrado.")
-        editado = replace(atual, **_converter(campos), status=StatusRequisito.EDITADO, avisos=())
+        convertidos = _converter(campos)
+        validos = {m.id for m in projeto.marcos}
+        desconhecidos = set(convertidos.get("marcos", ())) - validos
+        if desconhecidos:
+            raise EntradaInvalidaError(f"Marcos inexistentes: {', '.join(sorted(desconhecidos))}.")
+        editado = replace(atual, **convertidos, status=StatusRequisito.EDITADO, avisos=())
         extras = [editado.ifc_class] if editado.ifc_class else []
         contexto = self._validador.contexto(projeto, [], self._vocab, classes_extras=extras)
         validado = self._validador.validar_mapeamento(editado, projeto.modelo.schema, contexto)
@@ -200,6 +215,47 @@ class RevisarEir:
             )
             proximo += 1
         if not novos:
-            raise ConflitoError("As propriedades sugeridas já estão no EIR.")
+            raise ConflitoError("As propriedades sugeridas já estão nos requisitos de informação.")
         self._salvar(projeto, eir, [*eir.requisitos, *novos])
         return novos
+
+    def definir_marcos(
+        self, projeto_id: str, itens: Sequence[Mapping[str, Any]]
+    ) -> tuple[MarcoEntrega, ...]:
+        """Substitui a lista de marcos e tira dos requisitos os marcos removidos."""
+        projeto = self._repo.get(projeto_id)
+        if projeto is None:
+            raise NaoEncontradoError("Projeto não encontrado.")
+        if len(itens) > MAX_MARCOS:
+            raise EntradaInvalidaError(f"Cadastre até {MAX_MARCOS} marcos de entrega.")
+        anteriores = {m.id: m for m in projeto.marcos}
+        novos: list[MarcoEntrega] = []
+        for item in itens:
+            nome = _texto_opcional(item.get("nome"))
+            if not nome:
+                raise EntradaInvalidaError("Todo marco precisa de um nome.")
+            marco_id = _texto_opcional(item.get("id"))
+            anterior = anteriores.get(marco_id or "")
+            novos.append(
+                MarcoEntrega(
+                    id=anterior.id
+                    if anterior
+                    else marcos_domain.novo_id([*anteriores.values(), *novos]),
+                    nome=nome[:80],
+                    descricao=(_texto_opcional(item.get("descricao")) or "")[:300],
+                    evidencia=anterior.evidencia if anterior else None,
+                )
+            )
+        projeto.marcos = tuple(novos)
+        validos = {m.id for m in novos}
+        if projeto.eir:
+            requisitos = [
+                replace(r, marcos=tuple(m for m in r.marcos if m in validos))
+                for r in projeto.eir.requisitos
+            ]
+            projeto.eir = replace(projeto.eir, requisitos=tuple(requisitos))
+        if projeto.ids_marco_id not in validos:
+            projeto.ids_marco_id = None
+        projeto.ids_gerado = False
+        self._repo.save(projeto)
+        return projeto.marcos

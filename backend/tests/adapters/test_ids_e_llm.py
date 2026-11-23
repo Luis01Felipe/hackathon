@@ -100,7 +100,7 @@ def test_eir_sem_requisito_para_ids() -> None:
 
 def test_validacao_encontra_as_portas_sem_firerating() -> None:
     xml = IfcTesterIdsBuilder().build(_eir(_requisito("REQ-001")), "IFC4", "Teste")
-    resultado = IfcTesterValidator().validate(xml, str(MODELO))[0]
+    resultado = IfcTesterValidator().validate(xml, MODELO.read_bytes())[0]
     assert resultado.requisito_id == "REQ-001"
     assert resultado.aplicaveis == 16
     assert sorted(f.nome for f in resultado.falhas) == [

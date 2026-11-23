@@ -2,13 +2,13 @@
 
 from collections import Counter
 from functools import lru_cache
-from pathlib import Path
 
 import ifcopenshell
 import ifcopenshell.ifcopenshell_wrapper as wrapper
 import ifcopenshell.util.element as util_element
 import ifcopenshell.util.pset as util_pset
 
+from editalcheck.adapters.ifc.abrir import IfcInvalidoError, abrir_ifc
 from editalcheck.domain.models import (
     ClasseModelo,
     ElementoModelo,
@@ -31,9 +31,7 @@ PSETS_IGNORADOS = frozenset(
     }
 )
 
-
-class IfcInvalidoError(ValueError):
-    """O arquivo não pôde ser lido como IFC."""
+__all__ = ["IfcInvalidoError", "IfcOpenShellModelReader"]
 
 
 def _schema_base(schema: str) -> str:
@@ -101,14 +99,8 @@ def _elementos(arquivo: ifcopenshell.file) -> list[ifcopenshell.entity_instance]
 
 
 class IfcOpenShellModelReader:
-    def open(self, ifc_path: str) -> ifcopenshell.file:
-        try:
-            return ifcopenshell.open(ifc_path)
-        except Exception as erro:  # IfcOpenShell lança vários tipos
-            raise IfcInvalidoError(f"Não foi possível ler o IFC: {erro}") from erro
-
-    def load(self, ifc_path: str) -> ModeloResumo:
-        arquivo = self.open(ifc_path)
+    def load(self, conteudo: bytes, nome: str) -> ModeloResumo:
+        arquivo = abrir_ifc(conteudo)
         schema = arquivo.schema_identifier
         elementos = _elementos(arquivo)
         contagem = Counter(e.is_a() for e in elementos)
@@ -128,11 +120,12 @@ class IfcOpenShellModelReader:
                 classe=e.is_a(),
                 nome=e.Name,
                 pavimento=_pavimento(e),
+                nome_longo=getattr(e, "LongName", None),
             )
             for e in elementos
         )
         return ModeloResumo(
-            arquivo=Path(ifc_path).name,
+            arquivo=nome,
             schema=schema,
             classes=classes,
             elementos=resumo_elementos,

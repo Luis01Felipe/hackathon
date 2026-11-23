@@ -1,27 +1,32 @@
-"""Caso de uso: executar as análises A, B e C e a saúde do modelo (RF-40 a RF-46).
+"""Caso de uso: executar as análises A, B e C, as lições aprendidas e a saúde do modelo.
 
 As análises são independentes: a falha de uma não impede as outras (seção 8.5).
+Sem modelo IFC (modo "revisar edital"), só rodam a análise B e as lições.
 """
 
 import time
 import uuid
 from collections.abc import Callable, Sequence
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from threading import Lock
 
+from editalcheck.application.consumo import ExecutorComContexto, em_projeto
 from editalcheck.application.errors import NaoEncontradoError
 from editalcheck.application.observability import agora, etapa, logger
 from editalcheck.application.ports import (
+    AuditLog,
     EditalAnalyzer,
+    ElementGeometry,
     IfcModelReader,
     IfcValidator,
+    LessonChecker,
     ProjectRepository,
 )
 from editalcheck.application.use_cases.gerar_ids import ARQUIVO_IDS, GerarIds
 from editalcheck.application.use_cases.gerar_relatorio import GerarRelatorio, ResultadosAnalises
+from editalcheck.application.use_cases.importar_documentos import ARQUIVO_MODELO
 from editalcheck.domain import checklist as checklist_domain
-from editalcheck.domain import coverage, findings, vagueness
+from editalcheck.domain import coverage, duplicidade, findings, licoes, vagueness, versao_ifc
 from editalcheck.domain.evidence import conferir_evidencia
 from editalcheck.domain.models import (
     AmbiguidadeConfirmada,
@@ -36,10 +41,12 @@ from editalcheck.domain.models import (
     TermoVago,
     Topico,
     Verificacao,
+    VerificacaoLicao,
 )
 from editalcheck.domain.severity import ConfigSeveridade
 
-ANALISES = ("conformidade", "qualidade_edital", "cobertura", "saude_modelo")
+ANALISES = ("conformidade", "qualidade_edital", "licoes", "cobertura", "saude_modelo")
+SO_COM_MODELO = frozenset({"conformidade", "cobertura", "saude_modelo"})
 
 
 @dataclass
@@ -47,6 +54,7 @@ class _Coletor:
     resultados_ids: tuple[ResultadoEspecificacao, ...] = ()
     cobertura: Cobertura | None = None
     checklist: tuple[ResultadoChecklist, ...] = ()
+    verificacoes_licoes: tuple[VerificacaoLicao, ...] = ()
     apontamentos: list[Apontamento] = field(default_factory=list)
     avisos: list[str] = field(default_factory=list)
     duracoes: dict[str, float] = field(default_factory=dict)
@@ -65,6 +73,10 @@ class ExecutarVerificacao:
         termos_vagos: Sequence[TermoVago],
         itens_checklist: Sequence[ItemChecklist],
         config_severidade: ConfigSeveridade,
+        verificador_licoes: LessonChecker,
+        verificador_licoes_reserva: LessonChecker,
+        auditoria: AuditLog,
+        geometria: ElementGeometry,
     ) -> None:
         self._repo = repositorio
         self._ifc = ifc_reader
@@ -76,18 +88,28 @@ class ExecutarVerificacao:
         self._termos = list(termos_vagos)
         self._itens = list(itens_checklist)
         self._config = config_severidade
+        self._licoes = verificador_licoes
+        self._licoes_reserva = verificador_licoes_reserva
+        self._auditoria = auditoria
+        self._geometria = geometria
         self._trava = Lock()
 
     # ------------------------------------------------------------------ ciclo de vida
 
     def iniciar(self, projeto_id: str) -> Verificacao:
-        if self._repo.get(projeto_id) is None:
+        projeto = self._repo.get(projeto_id)
+        if projeto is None:
             raise NaoEncontradoError("Projeto não encontrado.")
         verificacao = Verificacao(
             id=uuid.uuid4().hex[:10],
             projeto_id=projeto_id,
             status=StatusVerificacao.PENDENTE,
-            progresso={nome: "pendente" for nome in (*ANALISES, "relatorio")},
+            progresso={
+                nome: "ignorada"
+                if projeto.modelo.sem_arquivo and nome in SO_COM_MODELO
+                else "pendente"
+                for nome in (*ANALISES, "relatorio")
+            },
             iniciado_em=agora(),
         )
         self._repo.save_verificacao(verificacao)
@@ -102,6 +124,10 @@ class ExecutarVerificacao:
         verificacao = self._repo.get_verificacao(verificacao_id)
         if verificacao is None:
             raise NaoEncontradoError("Verificação não encontrada.")
+        with em_projeto(verificacao.projeto_id):
+            return self._executar(verificacao)
+
+    def _executar(self, verificacao: Verificacao) -> Verificacao:
         projeto = self._repo.get(verificacao.projeto_id)
         if projeto is None:
             raise NaoEncontradoError("Projeto não encontrado.")
@@ -120,13 +146,13 @@ class ExecutarVerificacao:
                         cobertura=coletor.cobertura,
                         checklist=coletor.checklist,
                         apontamentos=tuple(coletor.apontamentos),
+                        verificacoes_licoes=coletor.verificacoes_licoes,
                     ),
                     coletor.avisos,
                     coletor.duracoes,
+                    self._repo.read_file(projeto.id, ARQUIVO_MODELO),
                 )
-                relatorio = self._relatorio.publicar(
-                    relatorio, self._repo.file_path(projeto.id, "modelo.ifc")
-                )
+                relatorio = self._relatorio.publicar(relatorio, projeto.modelo)
                 self._progresso(verificacao, "relatorio", "concluida")
             verificacao.status = StatusVerificacao.CONCLUIDA
             verificacao.avisos = relatorio.avisos
@@ -137,17 +163,26 @@ class ExecutarVerificacao:
             verificacao.avisos = tuple(coletor.avisos)
         verificacao.concluido_em = agora()
         self._repo.save_verificacao(verificacao)
+        self._auditoria.record(
+            "verificacao.concluir",
+            projeto=projeto.id,
+            verificacao=verificacao.id,
+            status=verificacao.status.value,
+        )
         return verificacao
 
     def _rodar_analises(
         self, verificacao: Verificacao, projeto: Projeto, coletor: _Coletor
     ) -> None:
-        tarefas: dict[str, Callable[[], None]] = {
+        tarefas: dict[str, Callable[[], str | None]] = {
             "conformidade": lambda: self._conformidade(projeto, coletor),
             "qualidade_edital": lambda: self._qualidade_edital(projeto, coletor),
+            "licoes": lambda: self._licoes_aprendidas(projeto, coletor),
             "cobertura": lambda: self._cobertura(projeto, coletor),
             "saude_modelo": lambda: self._saude(projeto, coletor),
         }
+        if projeto.modelo.sem_arquivo:
+            tarefas = {nome: f for nome, f in tarefas.items() if nome not in SO_COM_MODELO}
 
         def rodar(nome: str) -> None:
             self._progresso(verificacao, nome, "executando")
@@ -164,7 +199,7 @@ class ExecutarVerificacao:
                 coletor.duracoes[nome] = round(time.perf_counter() - inicio, 3)
             self._progresso(verificacao, nome, estado)
 
-        with ThreadPoolExecutor(len(tarefas)) as executor:
+        with ExecutorComContexto(len(tarefas)) as executor:
             list(executor.map(rodar, tarefas))
 
     def _adicionar(
@@ -186,14 +221,16 @@ class ExecutarVerificacao:
             )
             return "ignorada"
         if not projeto.ids_gerado or self._repo.read_file(projeto.id, ARQUIVO_IDS) is None:
-            resultado = self._gerar_ids.executar(projeto.id)
+            resultado = self._gerar_ids.executar(
+                projeto.id, projeto.ids_marco_id, projeto.ids_versao_ifc
+            )
             if not resultado.valido:
                 self._adicionar(coletor, [], [f"IDS inválido (S6): {'; '.join(resultado.erros)}"])
                 return "falhou"
             projeto = self._repo.get(projeto.id) or projeto
         ids_xml = self._repo.read_file(projeto.id, ARQUIVO_IDS) or b""
         resultados = self._validador.validate(
-            ids_xml, self._repo.file_path(projeto.id, "modelo.ifc")
+            ids_xml, self._repo.read_file(projeto.id, ARQUIVO_MODELO) or b""
         )
         with self._trava:
             coletor.resultados_ids = tuple(resultados)
@@ -228,7 +265,7 @@ class ExecutarVerificacao:
             projeto.edital, self._termos, projeto.topicos, [t.id for t in topicos]
         )
         # As três consultas são independentes: rodam em paralelo (cada uma com reserva).
-        with ThreadPoolExecutor(3) as executor:
+        with ExecutorComContexto(3) as executor:
             futuro_ambiguidade = executor.submit(
                 self._com_reserva,
                 "ambiguidade",
@@ -270,8 +307,100 @@ class ExecutarVerificacao:
             *findings.de_nao_verificaveis(requisitos),
             *findings.de_checklist(checklist, self._itens),
             *findings.de_contradicoes(conferidas),
+            *findings.de_duplicidades(duplicidade.encontrar(topicos)),
         ]
         self._adicionar(coletor, apontamentos, avisos)
+
+    # ------------------------------------------------------------------ lições aprendidas
+
+    def _licoes_aprendidas(self, projeto: Projeto, coletor: _Coletor) -> str | None:
+        """RF-104 a RF-106. As lições só acrescentam apontamentos (G1)."""
+        if not projeto.licoes:
+            return "ignorada"
+        avisos: list[str] = []
+        topicos = self._topicos_alvo(projeto) or [t for t in projeto.topicos if not t.agrupador]
+        brutos = self._com_reserva(
+            "lições aprendidas",
+            lambda: self._licoes.check(projeto.licoes, projeto.edital, topicos),
+            lambda: self._licoes_reserva.check(projeto.licoes, projeto.edital, topicos),
+            avisos,
+        )
+        respondidas = {v.licao_id for v in brutos}
+        faltantes = [licao for licao in projeto.licoes if licao.id not in respondidas]
+        if faltantes:
+            brutos = [*brutos, *self._licoes_reserva.check(faltantes, projeto.edital, topicos)]
+        verificacoes = [self._conferir_licao(v, projeto) for v in brutos]
+        candidatos = {
+            licao.id: licoes.elementos_candidatos(licao, projeto.modelo) for licao in projeto.licoes
+        }
+        proibidos = self._proibidos_no_modelo(projeto, candidatos, avisos)
+        with self._trava:
+            coletor.verificacoes_licoes = tuple(verificacoes)
+        self._adicionar(
+            coletor,
+            findings.de_licoes(projeto.licoes, verificacoes, candidatos, proibidos),
+            avisos,
+        )
+        return None
+
+    def _proibidos_no_modelo(
+        self, projeto: Projeto, candidatos: dict[str, tuple[str, ...]], avisos: list[str]
+    ) -> dict[str, tuple[str, ...]]:
+        """Elementos que a lição proíbe e que tocam o ambiente citado (ex.: janelas na
+        sala de baterias). Checagem geométrica simples, por caixa envolvente."""
+        alvos = {
+            licao.id: licoes.classes_proibidas(licao)
+            for licao in projeto.licoes
+            if candidatos.get(licao.id) and licoes.classes_proibidas(licao)
+        }
+        conteudo = self._repo.read_file(projeto.id, ARQUIVO_MODELO)
+        if not alvos or not conteudo:
+            return {}
+        classes = {c for lista in alvos.values() for c in lista}
+        suspeitos = [e.global_id for e in projeto.modelo.elementos if e.classe in classes]
+        ambientes = [g for lista in candidatos.values() for g in lista]
+        try:
+            caixas = self._geometria.boxes(conteudo, [*ambientes, *suspeitos])
+        except Exception as erro:  # a checagem geométrica é um extra
+            logger.warning("Checagem geométrica das lições falhou: %s", erro)
+            avisos.append("Não foi possível conferir a geometria dos ambientes das lições.")
+            return {}
+        classe_de = {e.global_id: e.classe for e in projeto.modelo.elementos}
+        encontrados: dict[str, tuple[str, ...]] = {}
+        for licao_id, proibidas in alvos.items():
+            dos_tipos = {
+                g: caixas[g] for g in suspeitos if g in caixas and classe_de[g] in proibidas
+            }
+            tocam = [
+                guid
+                for ambiente in candidatos[licao_id]
+                if ambiente in caixas
+                for guid in licoes.elementos_no_ambiente(caixas[ambiente], dos_tipos)
+            ]
+            if tocam:
+                encontrados[licao_id] = tuple(dict.fromkeys(tocam))
+        return encontrados
+
+    @staticmethod
+    def _conferir_licao(verificacao: VerificacaoLicao, projeto: Projeto) -> VerificacaoLicao:
+        """S2: sem trecho conferido no edital, a lição não conta como explícita."""
+        evidencia = (
+            conferir_evidencia(verificacao.evidencia, projeto.edital)
+            if verificacao.evidencia
+            else None
+        )
+        relacionado = (
+            conferir_evidencia(verificacao.trecho_relacionado, projeto.edital)
+            if verificacao.trecho_relacionado
+            else None
+        )
+        explicita = verificacao.explicita and evidencia is not None
+        return replace(
+            verificacao,
+            explicita=explicita,
+            evidencia=evidencia if explicita else None,
+            trecho_relacionado=None if explicita else relacionado,
+        )
 
     # ------------------------------------------------------------------ análise C
 
@@ -295,4 +424,13 @@ class ExecutarVerificacao:
     # ------------------------------------------------------------------ saúde
 
     def _saude(self, projeto: Projeto, coletor: _Coletor) -> None:
-        self._adicionar(coletor, findings.de_saude(projeto.modelo, self._config))
+        schema = projeto.modelo.schema
+        self._adicionar(
+            coletor,
+            [
+                *findings.de_saude(projeto.modelo, self._config),
+                *findings.de_versao_exigida(
+                    schema, versao_ifc.exigida(projeto.edital), versao_ifc.canonica(schema)
+                ),
+            ],
+        )

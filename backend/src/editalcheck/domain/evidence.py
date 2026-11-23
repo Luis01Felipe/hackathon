@@ -8,6 +8,7 @@ aspas/travessões tipográficos e caixa.
 import re
 import unicodedata
 from collections.abc import Iterable
+from dataclasses import replace
 
 from editalcheck.domain.models import Edital, Evidencia, Pagina
 
@@ -105,7 +106,7 @@ def conferir_evidencia(
         if outra.numero == evidencia.pagina:
             continue
         if trecho_confere(evidencia.trecho, outra.texto):
-            return Evidencia(pagina=outra.numero, trecho=evidencia.trecho)
+            return replace(evidencia, pagina=outra.numero)
     return None
 
 

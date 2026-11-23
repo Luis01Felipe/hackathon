@@ -3,8 +3,9 @@ import { api } from "../api";
 import type { Ctx } from "../state";
 import type { Topico } from "../types";
 import { badge, botao, carregando, erro, h, limpar, mensagemErro, paginas, vazio } from "../ui";
+import { abrirConfirmacaoTopicos } from "./confirmacao";
 
-/** Agrupadores não têm texto próprio: só os demais tópicos vão para o EIR. */
+/** Agrupadores não têm texto próprio: só os demais tópicos vão para os requisitos de informação (RI). */
 const selecionavel = (t: Topico): boolean => !t.agrupador;
 
 export function renderTopicos(ctx: Ctx): HTMLElement {
@@ -55,7 +56,7 @@ export function renderTopicos(ctx: Ctx): HTMLElement {
   const totalSelecionaveis = topicos.filter(selecionavel).length;
   const status = h("div", { class: "status-acao" });
   const contador = h("span", { class: "texto-suave" });
-  const gerar = h("button", { type: "button", class: "btn btn-primario" }, "Gerar EIR");
+  const gerar = h("button", { type: "button", class: "btn btn-primario" }, "Gerar requisitos (RI)");
   const checkboxes = new Map<string, HTMLInputElement>();
   const itens = new Map<string, HTMLElement>();
   const recolhidos = new Set<string>();
@@ -81,7 +82,7 @@ export function renderTopicos(ctx: Ctx): HTMLElement {
     const n = estado.selecionados.size;
     contador.textContent = `${n} de ${totalSelecionaveis} tópico(s) selecionado(s)`;
     gerar.disabled = n === 0;
-    gerar.textContent = n ? `Gerar EIR dos ${n} tópico(s) →` : "Gerar EIR";
+    gerar.textContent = n ? `Conferir no edital e gerar RI (${n}) →` : "Gerar requisitos (RI)";
   };
 
   const lista = h("ul", { class: "lista-topicos" });
@@ -144,7 +145,7 @@ export function renderTopicos(ctx: Ctx): HTMLElement {
     sincronizar();
   };
 
-  gerar.addEventListener("click", async () => {
+  const executarGeracao = async () => {
     const selecionados = topicos.filter((t) => estado.selecionados.has(t.id)).map((t) => t.id);
     if (!selecionados.length) return;
     gerar.disabled = true;
@@ -155,7 +156,7 @@ export function renderTopicos(ctx: Ctx): HTMLElement {
       ),
     );
     try {
-      estado.eir = await api.gerarEir(projeto.id, selecionados);
+      estado.eir = await api.gerarRi(projeto.id, selecionados);
       estado.ids = null;
       ctx.irPara(3);
     } catch (e) {
@@ -163,6 +164,18 @@ export function renderTopicos(ctx: Ctx): HTMLElement {
       status.append(erro(mensagemErro(e)));
       gerar.disabled = false;
     }
+  };
+
+  // Antes de gerar, a pessoa confere no próprio edital o que foi selecionado.
+  gerar.addEventListener("click", () => {
+    if (!estado.selecionados.size) return;
+    abrirConfirmacaoTopicos({
+      projetoId: projeto.id,
+      topicos,
+      selecionados: estado.selecionados,
+      aoMudar: () => sincronizar(),
+      aoConfirmar: () => void executarGeracao(),
+    });
   });
 
   const temSecoes = topicos.some((t) => arvore.filhos(t.id).length);
@@ -183,7 +196,7 @@ export function renderTopicos(ctx: Ctx): HTMLElement {
       "div",
       { class: "acoes acoes-fixas" },
       botao("← Voltar", () => ctx.irPara(1), "fantasma"),
-      estado.eir ? botao("Ver EIR atual", () => ctx.irPara(3), "secundario") : null,
+      estado.eir ? botao("Ver requisitos (RI)", () => ctx.irPara(3), "secundario") : null,
       gerar,
     ),
     status,

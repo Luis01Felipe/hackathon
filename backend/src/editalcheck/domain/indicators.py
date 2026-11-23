@@ -6,12 +6,15 @@ from collections.abc import Sequence
 from editalcheck.domain.models import (
     Apontamento,
     Cobertura,
+    ConsumoEtapa,
+    Custo,
     EstadoElemento,
     Indicadores,
     Requisito,
     ResultadoChecklist,
     ResultadoEspecificacao,
     StatusChecklist,
+    VerificacaoLicao,
 )
 
 
@@ -32,7 +35,10 @@ def calcular(
     checklist: Sequence[ResultadoChecklist],
     requisitos: Sequence[Requisito],
     apontamentos: Sequence[Apontamento],
+    verificacoes_licoes: Sequence[VerificacaoLicao] = (),
 ) -> Indicadores:
+    """Indicadores do painel. A verificação manual tem contagem própria (RF-161)."""
+    principais = [a for a in apontamentos if not a.verificacao_manual]
     aplicaveis = [r for r in resultados if r.aplicaveis > 0]
     aprovadas = sum(1 for r in aplicaveis if r.status)
     conformidade = round(100 * aprovadas / len(aplicaveis), 1) if aplicaveis else None
@@ -54,7 +60,33 @@ def calcular(
         requisitos_nao_verificaveis=sum(
             1 for r in requisitos if r.aprovado and not r.verificavel_por_ids
         ),
-        apontamentos_por_severidade=dict(Counter(a.severidade.value for a in apontamentos)),
-        apontamentos_por_destinatario=dict(Counter(a.destinatario.value for a in apontamentos)),
+        apontamentos_por_severidade=dict(Counter(a.severidade.value for a in principais)),
+        apontamentos_por_destinatario=dict(Counter(a.destinatario.value for a in principais)),
         apontamentos_por_tipo=dict(Counter(a.tipo.value for a in apontamentos)),
+        apontamentos_por_origem=dict(Counter(a.origem.value for a in principais)),
+        verificacao_manual=len(apontamentos) - len(principais),
+        licoes_total=len(verificacoes_licoes),
+        licoes_nao_explicitas=sum(1 for v in verificacoes_licoes if not v.explicita),
+    )
+
+
+def somar_consumo(consumo: Sequence[ConsumoEtapa]) -> tuple[int, int]:
+    return sum(c.tokens_entrada for c in consumo), sum(c.tokens_saida for c in consumo)
+
+
+def calcular_custo(
+    consumo: Sequence[ConsumoEtapa],
+    preco_entrada_usd_mtok: float | None,
+    preco_saida_usd_mtok: float | None,
+    fonte_preco: str = "",
+) -> Custo:
+    """Custo estimado em dólares a partir dos tokens medidos e dos preços configurados."""
+    entrada, saida = somar_consumo(consumo)
+    if preco_entrada_usd_mtok is None or preco_saida_usd_mtok is None:
+        return Custo(
+            entrada, saida, None, preco_entrada_usd_mtok, preco_saida_usd_mtok, fonte_preco
+        )
+    usd = (entrada * preco_entrada_usd_mtok + saida * preco_saida_usd_mtok) / 1_000_000
+    return Custo(
+        entrada, saida, round(usd, 6), preco_entrada_usd_mtok, preco_saida_usd_mtok, fonte_preco
     )

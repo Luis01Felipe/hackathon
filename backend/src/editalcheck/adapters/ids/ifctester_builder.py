@@ -1,9 +1,10 @@
-"""Geração determinística do IDS 1.0 a partir do EIR aprovado (RF-30 a RF-32).
+"""Geração determinística do IDS 1.0 a partir dos requisitos de informação (RI) aprovados.
 
 O LLM nunca escreve XML: cada requisito aprovado vira uma especificação IDS
 por código, com o ID do requisito no nome e no identifier.
 """
 
+from collections.abc import Sequence
 from datetime import date
 
 from ifctester import ids
@@ -15,6 +16,7 @@ from editalcheck.domain.models import (
     TipoFaceta,
     TipoRestricao,
 )
+from editalcheck.domain.versao_ifc import canonica
 
 RELACOES_PARTOF = {
     "IFCRELAGGREGATES",
@@ -31,12 +33,8 @@ class IdsInvalidoError(ValueError):
 
 
 def versao_ids(schema: str) -> str:
-    schema = schema.upper()
-    if schema.startswith("IFC4X3"):
-        return "IFC4X3_ADD2"
-    if schema.startswith("IFC2X3"):
-        return "IFC2X3"
-    return "IFC4"
+    """Versão do IDS 1.0 (IFC2X3, IFC4 ou IFC4X3_ADD2) para um schema ou versão."""
+    return canonica(schema)
 
 
 def _base_xsd(tipo_dado: str | None) -> str:
@@ -120,7 +118,7 @@ def _requisito_ids(requisito: Requisito):
     raise IdsInvalidoError(f"{requisito.id}: faceta não suportada ({requisito.faceta}).")
 
 
-def especificacao(requisito: Requisito, schema: str) -> ids.Specification:
+def especificacao(requisito: Requisito, schema: str, marco: str | None = None) -> ids.Specification:
     if not requisito.ifc_class:
         raise IdsInvalidoError(f"{requisito.id}: requisito sem classe IFC.")
     trecho = " ".join(requisito.evidencia.trecho.split())
@@ -134,7 +132,10 @@ def especificacao(requisito: Requisito, schema: str) -> ids.Specification:
         ifcVersion=[versao_ids(schema)],
         identifier=requisito.id,
         description=origem,
-        instructions=f"Requisito {requisito.id} do EIR aprovado (tópico {requisito.topico_id}).",
+        instructions=(
+            f"Requisito {requisito.id} dos requisitos de informação (RI) aprovados "
+            f"(tópico {requisito.topico_id}). Entrega: {marco or 'contrato inteiro'}."
+        ),
         minOccurs=0,
         maxOccurs="unbounded",
     )
@@ -149,19 +150,32 @@ def especificacao(requisito: Requisito, schema: str) -> ids.Specification:
 
 
 class IfcTesterIdsBuilder:
-    def build(self, eir: Eir, schema: str, titulo: str) -> bytes:
+    def build(
+        self,
+        eir: Eir,
+        versao_ifc: str,
+        titulo: str,
+        marco: str | None = None,
+        requisitos: Sequence[Requisito] | None = None,
+    ) -> bytes:
+        """Monta o IDS do contrato inteiro (``marco=None``) ou de um marco de entrega."""
         documento = ids.Ids(
             title=titulo,
-            version=f"EIR v{eir.versao}",
-            description="Requisitos de informação extraídos do edital e aprovados pelo projetista "
-            "(EditalCheck). Cada especificação cita a página e o trecho do edital.",
+            version=f"RI v{eir.versao}",
+            description="Requisitos de informação (RI) extraídos do edital e aprovados por uma "
+            "pessoa (EditalCheck). Cada especificação cita a página e o trecho do edital.",
             date=date.today().isoformat(),
-            purpose="Verificação do modelo IFC contra o edital",
+            purpose=(
+                "Contrato de dados da contratação: o que o modelo IFC deve conter em cada "
+                "entrega, conforme o edital."
+            ),
+            milestone=marco or "Contrato inteiro",
         )
-        for requisito in eir.requisitos_para_ids:
-            documento.specifications.append(especificacao(requisito, schema))
+        alvo = eir.requisitos_para_ids if requisitos is None else requisitos
+        for requisito in alvo:
+            documento.specifications.append(especificacao(requisito, versao_ifc, marco))
         if not documento.specifications:
-            raise IdsInvalidoError("Não há requisito aprovado e verificável por IDS no EIR.")
+            raise IdsInvalidoError("Não há requisito aprovado e verificável por IDS neste escopo.")
         xml = documento.to_string()
         return ('<?xml version="1.0" encoding="UTF-8"?>\n' + xml).encode("utf-8")
 

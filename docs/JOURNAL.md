@@ -60,3 +60,56 @@ Registro da jornada do time. Vira o slide de progresso do pitch.
 - [ ] Cronometrar o tempo manual equivalente (1 tópico).
 - [ ] Definir nome do time e do produto (D4) e a licença do repositório.
 - [ ] Gravar o vídeo de reserva da demo.
+
+## 23/11/2026 — v2, depois da conversa com a banca
+
+Fonte: as duas gravações da apresentação do protótipo à banca, consolidadas em [especificacao-tecnica-v2.md](especificacao-tecnica-v2.md).
+
+### Decisões
+
+- **RI no lugar de EIR.** A banca apontou a nomenclatura como ponto fraco. O time adotou "requisitos de informação (RI)", mais genérico. O código mantém a entidade `Eir` e aceita as rotas `/eir` como alias, para não arriscar a demo.
+- **Lições aprendidas como quarta entrada (PDCA).** O campo "informações adicionais" virou "lições aprendidas" e aceita TXT e PDF. Caso de referência da banca: o edital pedia iluminação natural em todos os ambientes, e janelas foram instaladas em salas de baterias.
+- **Salvaguardas contra abuso.** A banca alertou que ajustar a IA com as "decisões da empresa" permitiria mascarar problemas. As lições só acrescentam apontamentos. Dispensar um apontamento exige justificativa e ele continua no relatório.
+- **Modo efêmero por padrão.** O time disse à banca que nada fica no servidor, mas o código gravava projetos em `var/` e respostas do LLM em `.cache/`. Agora tudo fica em memória, com TTL de 120 minutos e botão para apagar. Só o log de auditoria (sem conteúdo) vai para o disco.
+- **Origem visível.** Cada apontamento é do EDITAL (contratante corrige) ou do MODELO (contratado corrige), com cor e texto.
+- **IDS por marco.** O edital da demo cita três marcos (estudo preliminar, anteprojeto, projeto executivo). O IDS pode cobrir o contrato inteiro ou um marco, com `milestone` e `purpose` preenchidos.
+- **BCF com coordenada.** A banca pediu a coordenada XYZ no BCF final. Cada comentário de viewpoint traz o centro e a caixa envolvente em metros.
+- **Gemini pago.** O time confirmou que a API paga não usa os dados para treino. O aviso da interface diz isso.
+
+### Tentativas que falharam e como resolvemos
+
+- A detecção de texto repetido marcou os rodapés "página 2 de 5" como cláusulas contraditórias. Agora ignora numeração de página e textos repetidos em 3 ou mais páginas.
+- A comparação de frases com um número diferente ("2,80 m" × "3,00 m") ficava abaixo do limite de similaridade. Os números passaram a ser comparados à parte, e o texto usa "#" no lugar deles.
+- O cabeçalho do documento de lições virou uma "lição". Agora só entram itens com regra ("deve", "não pode", "proibido" etc.).
+- A lição das portas, já exigida no edital, saía como ausente porque o texto do item inteiro diluía a comparação. A busca passou a usar só a primeira frase do item.
+- Os ambientes do IFC da demo são placas de 5 cm. A checagem de janelas no ambiente estende a altura do ambiente para 3 m.
+
+### Medições (modo offline, dados sintéticos)
+
+- Recall 100% (19/19), precisão 100% (19/19), checklist 10/10, ambiguidades 10/10. Pipeline completo pela CLI em menos de 1 s.
+- Apontamentos da demo: 26 do edital, 7 do modelo e 14 de verificação manual (com todos os tópicos relevantes selecionados).
+- Lições: 3 de 4 ausentes do edital. A da sala de baterias sai com severidade alta e aponta as janelas J11 e J12 no modelo.
+
+### Pendências
+
+- [ ] Colocar o documento de teste liberado pela banca em `backend/resources/contexto/` (contexto) ou `data/` (demo).
+- [ ] Configurar o preço do modelo Gemini (`LLM_PRECO_*`) com fonte e data.
+- [ ] Cronometrar o tempo manual e preencher `backend/resources/referencia_tempo_manual.yaml`.
+- [ ] Medir de novo as métricas com o Gemini e com um edital real.
+- [ ] Confirmar qual artigo sobre IA e IDS o time leu (candidatos no README).
+
+### Visualizador do edital (pedido do time)
+
+- **Decisão:** o visualizador fica dentro do app, só leitura, com pdf.js (`pdfjs-dist`, Apache-2.0). O relatório HTML ganhou o link "Ver no edital", e o PDF com as sugestões entrega o mesmo conteúdo sem o sistema.
+- **Dois usos:** a confirmação dos tópicos antes de gerar os RI (tópicos grifados; relevantes não selecionados tracejados) e a aba "Edital com os ajustes" nos resultados (PDF à esquerda, ajustes à direita).
+- **Localização por palavras:** a busca de texto do PyMuPDF não achava frases que quebram de linha (ex.: "W/(m²·K)"). O localizador agora compara sequências de palavras normalizadas e une as caixas por linha. O mesmo localizador alimenta a tela e o PDF baixado.
+- **PDF com as sugestões:** sumário com links, etiqueta na margem que volta ao sumário, links externos e índice lateral. Os apontamentos do modelo aparecem na cláusula de origem, em outra cor.
+
+Tentativas que falharam e como resolvemos:
+
+- O pdf.js 6 usa recursos novos de JavaScript. Passamos a carregar a versão "legacy", compatível com navegadores mais antigos.
+- Trocar para a aba Edital redesenhava a tela e descartava o 3D no meio do carregamento (erro no worker do That Open). As duas visões agora ficam montadas e só alternam a visibilidade.
+- A grade da aba Edital herdava `flex: 1` da tela de confirmação e crescia até o tamanho do documento. Corrigido com `flex: none`.
+- As faixas dos tópicos incluíam o rodapé. Cabeçalho e rodapé (6% e 7% da altura) ficam fora da faixa.
+- Na etiqueta de margem do PDF, a nota sobrescrevia o texto da etiqueta. A etiqueta agora só traz o código do apontamento.
+

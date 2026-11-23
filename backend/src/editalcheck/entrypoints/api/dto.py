@@ -5,9 +5,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, TypeAdapter
 
 from editalcheck.domain.models import (
+    ConsumoEtapa,
     Eir,
+    LicaoAprendida,
+    MarcoEntrega,
     ModeloResumo,
     Projeto,
+    RegiaoPdf,
     Relatorio,
     Requisito,
     Topico,
@@ -15,6 +19,9 @@ from editalcheck.domain.models import (
 )
 
 _REQUISITO = TypeAdapter(Requisito)
+_LICAO = TypeAdapter(LicaoAprendida)
+_MARCO = TypeAdapter(MarcoEntrega)
+_CONSUMO = TypeAdapter(ConsumoEtapa)
 _TOPICO = TypeAdapter(Topico)
 _RELATORIO = TypeAdapter(Relatorio)
 _VERIFICACAO = TypeAdapter(Verificacao)
@@ -38,6 +45,43 @@ class AdicionarLacunaRequest(BaseModel):
     apontamento_id: str
 
 
+class GerarIdsRequest(BaseModel):
+    marco_id: str | None = None
+    versao_ifc: Literal["IFC2X3", "IFC4", "IFC4X3_ADD2"] | None = None
+
+
+class MarcoRequest(BaseModel):
+    id: str | None = Field(default=None, max_length=20)
+    nome: str = Field(min_length=1, max_length=80)
+    descricao: str = Field(default="", max_length=300)
+
+
+class DefinirMarcosRequest(BaseModel):
+    marcos: list[MarcoRequest] = Field(max_length=20)
+
+
+class DecisaoRequest(BaseModel):
+    status: Literal["pendente", "aceito", "rejeitado", "em_discussao", "dispensado"]
+    comentario: str = Field(default="", max_length=1000)
+    autor: str = Field(default="", max_length=120)
+
+
+def regiao(r: RegiaoPdf) -> dict[str, Any]:
+    return {"pagina": r.pagina, "x0": r.x0, "y0": r.y0, "x1": r.x1, "y1": r.y1}
+
+
+def licoes(projeto: Projeto) -> list[dict[str, Any]]:
+    return [_LICAO.dump_python(licao, mode="json") for licao in projeto.licoes]
+
+
+def marcos(projeto: Projeto) -> list[dict[str, Any]]:
+    return [_MARCO.dump_python(marco, mode="json") for marco in projeto.marcos]
+
+
+def consumo(itens: tuple[ConsumoEtapa, ...]) -> list[dict[str, Any]]:
+    return [_CONSUMO.dump_python(item, mode="json") for item in itens]
+
+
 def projeto_resumo(projeto: Projeto, modo_ia: str) -> dict[str, Any]:
     modelo = projeto.modelo
     return {
@@ -57,6 +101,12 @@ def projeto_resumo(projeto: Projeto, modo_ia: str) -> dict[str, Any]:
         "ids_gerado": projeto.ids_gerado,
         "avisos": list(projeto.avisos),
         "modo_ia": modo_ia,
+        "sem_modelo": modelo.sem_arquivo,
+        "licoes": licoes(projeto),
+        "documentos_licoes": [d.arquivo for d in projeto.documentos_licoes],
+        "marcos": marcos(projeto),
+        "ids_marco_id": projeto.ids_marco_id,
+        "ids_versao_ifc": projeto.ids_versao_ifc,
     }
 
 
@@ -86,21 +136,46 @@ def verificacao(v: Verificacao) -> dict[str, Any]:
 
 def relatorio(rel: Relatorio, modelo: ModeloResumo) -> dict[str, Any]:
     por_guid = {e.global_id: e for e in modelo.elementos}
+    caixas = rel.caixas
 
     def elemento(guid: str) -> dict[str, Any]:
         item = por_guid.get(guid)
+        caixa = caixas.get(guid)
+        posicao = (
+            {
+                "centro": list(caixa.centro),
+                "minimo": list(caixa.minimo),
+                "maximo": list(caixa.maximo),
+            }
+            if caixa
+            else None
+        )
         if item is None:
-            return {"global_id": guid, "step_id": None, "classe": None, "nome": None}
+            return {
+                "global_id": guid,
+                "step_id": None,
+                "classe": None,
+                "nome": None,
+                "nome_longo": None,
+                "pavimento": None,
+                "posicao": posicao,
+            }
         return {
             "global_id": guid,
             "step_id": item.step_id,
             "classe": item.classe,
             "nome": item.nome,
+            "nome_longo": item.nome_longo,
+            "pavimento": item.pavimento,
+            "posicao": posicao,
         }
 
     dados = _RELATORIO.dump_python(rel, mode="json")
-    for apontamento in dados["apontamentos"]:
+    dados.pop("caixas", None)
+    for bruto, apontamento in zip(rel.apontamentos, dados["apontamentos"], strict=True):
         apontamento["elementos"] = [elemento(g) for g in apontamento["elementos"]]
+        apontamento["origem"] = bruto.origem.value
+        apontamento["verificacao_manual"] = bruto.verificacao_manual
     dados["estado_elementos"] = [
         {**elemento(guid), "estado": estado} for guid, estado in dados["estado_elementos"].items()
     ]

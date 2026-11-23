@@ -36,6 +36,7 @@ def test_pipeline_demo_ponta_a_ponta(container: Container, arquivos_demo) -> Non
     duracao = time.perf_counter() - inicio
 
     assert verificacao.status == StatusVerificacao.CONCLUIDA
+    assert verificacao.progresso.pop("licoes") == "ignorada"  # projeto sem lições aprendidas
     assert set(verificacao.progresso.values()) == {"concluida"}
     assert resultado_ids.valido and resultado_ids.especificacoes == 8
     assert relatorio is not None
@@ -76,8 +77,8 @@ def test_pipeline_demo_ponta_a_ponta(container: Container, arquivos_demo) -> Non
     assert EstadoElemento.NAO_CONFORME in relatorio.estado_elementos.values()
 
     # Saídas publicadas: HTML e BCF
-    assert container.repositorio.relatorio_file(verificacao.id, "relatorio.html")
-    assert container.repositorio.relatorio_file(verificacao.id, "resultado.bcf")
+    assert container.repositorio.read_relatorio_file(verificacao.id, "relatorio.html")
+    assert container.repositorio.read_relatorio_file(verificacao.id, "resultado.bcf")
 
     # Métricas da seção 14.3 contra o gabarito (modo regras; ver limites no JOURNAL)
     metricas = avaliar(
