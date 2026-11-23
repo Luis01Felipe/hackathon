@@ -22,7 +22,7 @@ from editalcheck.application.errors import (
 )
 from editalcheck.application.use_cases.gerar_ids import ARQUIVO_IDS
 from editalcheck.application.use_cases.gerar_relatorio import ARQUIVO_BCF, ARQUIVO_HTML
-from editalcheck.application.use_cases.importar_documentos import ARQUIVO_MODELO
+from editalcheck.application.use_cases.importar_documentos import ARQUIVO_EDITAL, ARQUIVO_MODELO
 from editalcheck.bootstrap import Container, configurar_logs, construir
 from editalcheck.config import carregar
 from editalcheck.domain.versao_ifc import VERSOES_IDS
@@ -173,6 +173,25 @@ def criar_app(container: Container | None = None) -> FastAPI:
         if conteudo is None:
             raise NaoEncontradoError("Este projeto não tem modelo IFC.")
         return _anexo(conteudo, "application/x-step", projeto.modelo.arquivo or ARQUIVO_MODELO)
+
+    @app.get("/api/projetos/{projeto_id}/edital.pdf")
+    def ver_edital(projeto_id: str) -> Response:
+        projeto = projeto_ou_404(projeto_id)
+        conteudo = c.repositorio.read_file(projeto.id, ARQUIVO_EDITAL)
+        if conteudo is None:
+            raise NaoEncontradoError("O edital deste projeto não está disponível.")
+        return Response(
+            conteudo,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{projeto.edital.arquivo}"'},
+        )
+
+    @app.get("/api/projetos/{projeto_id}/topicos/regioes")
+    def regioes_topicos(projeto_id: str) -> dict[str, list[dict[str, Any]]]:
+        return {
+            topico_id: [dto.regiao(r) for r in regioes]
+            for topico_id, regioes in c.localizar.topicos(projeto_id).items()
+        }
 
     @app.get("/api/projetos/{projeto_id}/consumo")
     def consumo(projeto_id: str) -> list[dict[str, Any]]:
@@ -360,6 +379,18 @@ def criar_app(container: Container | None = None) -> FastAPI:
             "autor": decisao.autor,
             "data": decisao.data,
         }
+
+    @app.get("/api/verificacoes/{verificacao_id}/regioes")
+    def regioes_apontamentos(verificacao_id: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "apontamento_id": local.apontamento_id,
+                "localizado": local.localizado,
+                "paginas": list(local.paginas),
+                "regioes": [dto.regiao(r) for r in local.regioes],
+            }
+            for local in c.localizar.apontamentos(verificacao_id)
+        ]
 
     @app.get("/api/verificacoes/{verificacao_id}/edital-anotado.pdf")
     def edital_anotado(verificacao_id: str) -> Response:

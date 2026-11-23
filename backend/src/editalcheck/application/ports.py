@@ -12,6 +12,7 @@ from editalcheck.domain.models import (
     DecisaoApontamento,
     Edital,
     Eir,
+    Evidencia,
     ItemChecklist,
     LicaoAprendida,
     ModeloResumo,
@@ -19,6 +20,7 @@ from editalcheck.domain.models import (
     PropriedadeOficial,
     Recomendacao,
     Referencia,
+    RegiaoPdf,
     Relatorio,
     Requisito,
     ResultadoChecklist,
@@ -48,6 +50,18 @@ class IfcModelReader(Protocol):
 
     def is_entity(self, schema: str, ifc_class: str) -> bool:
         """True se o nome é uma entidade (classe) do schema, e não um tipo de dado."""
+        ...
+
+
+class EditalLocator(Protocol):
+    """Posição de trechos e tópicos no PDF do edital, para grifar e navegar."""
+
+    def trechos(self, pdf: bytes, evidencias: Sequence[Evidencia]) -> list[list[RegiaoPdf]]:
+        """Regiões de cada evidência, na mesma ordem (lista vazia se não achar)."""
+        ...
+
+    def topicos(self, pdf: bytes, topicos: Sequence[Topico]) -> dict[str, list[RegiaoPdf]]:
+        """Faixas de cada tópico, do título até o início do tópico seguinte."""
         ...
 
 

@@ -302,3 +302,79 @@ def test_contexto_de_referencia_escolhe_trechos_dentro_do_orcamento(tmp_path: Pa
     [(documento, trecho)] = contexto.select("5.1.1 Todas as portas deverão ter resistência ao fogo")
     assert documento == "referencia.txt" and "portas corta-fogo" in trecho
     assert contexto.select("texto sem relação nenhuma") == []
+
+
+def test_localizador_acha_trecho_que_quebra_linha_e_faixa_dos_topicos() -> None:
+    from editalcheck.adapters.pdf.localizador import PyMuPdfLocalizador
+    from editalcheck.adapters.pdf.pymupdf_reader import PyMuPdfEditalReader
+    from editalcheck.domain import topics
+    from editalcheck.domain.models import Evidencia
+
+    pdf = (PASTA_DEMO / "edital.pdf").read_bytes()
+    localizador = PyMuPdfLocalizador()
+    trecho = (
+        "5.3.1 Todas as janelas deverão informar a transmitância térmica "
+        "(ThermalTransmittance), em W/(m²·K)."
+    )
+    [achado, ausente] = localizador.trechos(
+        pdf, [Evidencia(3, trecho), Evidencia(3, "frase que não existe no edital de exemplo")]
+    )
+    assert achado and ausente == []
+    assert all(r.pagina == 3 and 0 <= r.x0 < r.x1 <= 1 and 0 <= r.y0 < r.y1 <= 1 for r in achado)
+
+    edital = PyMuPdfEditalReader().read(pdf, "edital.pdf")
+    lista = topics.segmentar(edital)
+    faixas = localizador.topicos(pdf, lista)
+    formato = next(t for t in lista if t.numero == "4.1")
+    qualidade = next(t for t in lista if t.numero == "4.2")
+    [a] = faixas[formato.id]
+    [b] = faixas[qualidade.id]
+    assert a.pagina == b.pagina == 2 and a.y0 < b.y0 and a.y1 <= b.y0 + 0.01
+
+
+def test_edital_anotado_tem_sumario_links_e_indice(container: Container) -> None:
+    _, verificacao, relatorio = _rodar(container, [(LICOES.read_bytes(), LICOES.name)])
+    pdf = container.exportar_edital.anotado(verificacao.id)
+    original = pymupdf.open(stream=(PASTA_DEMO / "edital.pdf").read_bytes(), filetype="pdf")
+    with pymupdf.open(stream=pdf, filetype="pdf") as documento:
+        sumario = documento.page_count - original.page_count
+        assert sumario >= 1
+        assert "Ajustes sugeridos pelo EditalCheck" in documento[0].get_text()
+        indice = documento.get_toc()
+        assert indice[0][1].startswith("Sumário") and len(indice) > 10
+        links = [link for i in range(sumario) for link in documento[i].get_links()]
+        internos = [link for link in links if link["kind"] == pymupdf.LINK_GOTO]
+        externos = [link for link in links if link["kind"] == pymupdf.LINK_URI]
+        assert internos and all(link["page"] >= sumario for link in internos)
+        assert any("buildingsmart" in link["uri"] for link in externos)
+        voltas = [
+            link
+            for i in range(sumario, documento.page_count)
+            for link in documento[i].get_links()
+            if link["kind"] == pymupdf.LINK_GOTO
+        ]
+        assert voltas and all(link["page"] < sumario for link in voltas)
+    assert relatorio.apontamentos
+
+
+def test_api_visualizador_do_edital(container: Container) -> None:
+    cliente = TestClient(criar_app(container))
+    pid = cliente.post("/api/projetos/demo").json()["id"]
+    pdf = cliente.get(f"/api/projetos/{pid}/edital.pdf")
+    assert pdf.status_code == 200 and pdf.content[:4] == b"%PDF"
+    assert pdf.headers["content-disposition"].startswith("inline")
+    faixas = cliente.get(f"/api/projetos/{pid}/topicos/regioes").json()
+    assert faixas and all(
+        {"pagina", "x0", "y0", "x1", "y1"} <= set(r) for v in faixas.values() for r in v
+    )
+
+    topicos = [
+        t["id"] for t in cliente.get(f"/api/projetos/{pid}/topicos").json() if t["relevante_bim"]
+    ]
+    cliente.post(f"/api/projetos/{pid}/ri", json={"topicos": topicos})
+    cliente.post(f"/api/projetos/{pid}/ri/aprovar-todos", json={"somente_verificaveis": True})
+    vid = cliente.post(f"/api/projetos/{pid}/verificacoes").json()["id"]
+    locais = cliente.get(f"/api/verificacoes/{vid}/regioes").json()
+    assert any(local["localizado"] for local in locais)
+    lacuna = next(local for local in locais if not local["paginas"])
+    assert not lacuna["localizado"] and lacuna["regioes"] == []

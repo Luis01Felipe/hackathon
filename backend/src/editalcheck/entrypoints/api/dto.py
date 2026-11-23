@@ -11,6 +11,7 @@ from editalcheck.domain.models import (
     MarcoEntrega,
     ModeloResumo,
     Projeto,
+    RegiaoPdf,
     Relatorio,
     Requisito,
     Topico,
@@ -63,6 +64,10 @@ class DecisaoRequest(BaseModel):
     status: Literal["pendente", "aceito", "rejeitado", "em_discussao", "dispensado"]
     comentario: str = Field(default="", max_length=1000)
     autor: str = Field(default="", max_length=120)
+
+
+def regiao(r: RegiaoPdf) -> dict[str, Any]:
+    return {"pagina": r.pagina, "x0": r.x0, "y0": r.y0, "x1": r.x1, "y1": r.y1}
 
 
 def licoes(projeto: Projeto) -> list[dict[str, Any]]:

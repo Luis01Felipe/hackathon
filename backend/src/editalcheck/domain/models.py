@@ -142,6 +142,18 @@ class Topico:
 
 
 @dataclass(frozen=True)
+class RegiaoPdf:
+    """Retângulo numa página do PDF, em frações da página (0 a 1, origem no canto
+    superior esquerdo). Independe da escala em que a página é desenhada."""
+
+    pagina: int
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+
+
+@dataclass(frozen=True)
 class Evidencia:
     pagina: int
     trecho: str  # conferido literalmente contra o texto da página

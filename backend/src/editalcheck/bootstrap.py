@@ -14,6 +14,7 @@ from editalcheck.adapters.ifc import abrir
 from editalcheck.adapters.ifc.geometria import IfcOpenShellGeometry
 from editalcheck.adapters.ifc.ifcopenshell_model import IfcOpenShellModelReader
 from editalcheck.adapters.pdf.annotator import PyMuPdfEditalAnnotator
+from editalcheck.adapters.pdf.localizador import PyMuPdfLocalizador
 from editalcheck.adapters.pdf.pymupdf_reader import PyMuPdfEditalReader, TextoOuPdfReader
 from editalcheck.adapters.report.html_writer import JinjaHtmlReportWriter
 from editalcheck.adapters.resources import (
@@ -48,6 +49,7 @@ from editalcheck.application.use_cases.importar_documentos import (
     ImportarDocumentos,
 )
 from editalcheck.application.use_cases.importar_licoes import ImportarLicoes
+from editalcheck.application.use_cases.localizar_no_edital import LocalizarNoEdital
 from editalcheck.application.use_cases.revisar_eir import RevisarEir
 from editalcheck.config import Settings
 from editalcheck.domain.severity import ConfigSeveridade
@@ -66,6 +68,7 @@ class Container:
     verificar: ExecutarVerificacao
     decidir: DecidirApontamento
     exportar_edital: ExportarEdital
+    localizar: LocalizarNoEdital
     excluir: ExcluirProjeto
     exportador_eir: XlsxEirExporter
     documentos_contexto: tuple[str, ...]
@@ -103,6 +106,7 @@ def construir(settings: Settings) -> Container:
     vocabulario = carregar_vocabulario(recursos / "vocabulario_pt.yaml")
 
     medidor = MedidorConsumo()
+    localizador = PyMuPdfLocalizador()
     repositorio = _repositorio(settings, medidor)
     auditoria = _auditoria(settings)
     ifc_reader = IfcOpenShellModelReader()
@@ -220,6 +224,7 @@ def construir(settings: Settings) -> Container:
         exportar_edital=ExportarEdital(
             repositorio, PyMuPdfEditalAnnotator(), XlsxClarificationExporter()
         ),
+        localizar=LocalizarNoEdital(repositorio, localizador),
         excluir=ExcluirProjeto(repositorio, medidor, auditoria, abrir.esquecer),
         exportador_eir=XlsxEirExporter(),
         documentos_contexto=referencias.documentos if referencias else (),
