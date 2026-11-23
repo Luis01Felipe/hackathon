@@ -1,6 +1,7 @@
 // Visualizador do edital em PDF, só leitura, com pdf.js (pdfjs-dist, licença Apache-2.0).
 //
-// - Desenha só as páginas perto da área visível (editais de centenas de páginas não travam).
+// - Desenha só as páginas perto da área visível (editais de centenas de páginas não travam)
+//   e devolve a memória das páginas que saem dela. A memória de vídeo é dividida com o 3D.
 // - Por cima de cada página, uma camada de marcas: grifos com posição em frações da página
 //   (0 a 1, origem no canto superior esquerdo), calculadas pelo backend.
 // - Não edita o PDF: a navegação e os grifos são só uma camada de visualização.
@@ -21,6 +22,8 @@ export interface MarcaPdf {
 }
 
 const ESCALAS = [0.6, 0.8, 1, 1.25, 1.5, 2];
+/** Densidade máxima de pixels do canvas de cada página. */
+const PIXEL_RATIO_MAXIMO = 2;
 /** Altura de uma etiqueta da margem, em fração da página: etiquetas na mesma linha empilham. */
 const ALTURA_ETIQUETA = 0.016;
 
@@ -60,6 +63,7 @@ export class VisualizadorPdf {
   private alturaBase = 792;
   private observador: IntersectionObserver | null = null;
   private descartado = false;
+  private pausado = false;
 
   private constructor(
     host: HTMLElement,
@@ -149,19 +153,42 @@ export class VisualizadorPdf {
 
   private aoVer(entradas: IntersectionObserverEntry[]): void {
     for (const entrada of entradas) {
-      if (!entrada.isIntersecting) continue;
       const numero = Number((entrada.target as HTMLElement).dataset.pagina);
       const pagina = this.paginas[numero - 1];
-      if (pagina) void this.desenhar(pagina);
+      if (!pagina) continue;
+      if (entrada.isIntersecting) void this.desenhar(pagina);
+      else this.liberar(pagina);
+    }
+  }
+
+  /** Devolve a memória do canvas na hora (zerar o tamanho não espera o coletor de lixo). */
+  private liberar(p: PaginaVisual): void {
+    p.desenhadaEm = 0;
+    if (!p.canvas) return;
+    p.canvas.width = 0;
+    p.canvas.height = 0;
+    p.canvas.remove();
+    p.canvas = null;
+  }
+
+  /** Aba escondida: libera todas as páginas. Visível de novo: redesenha as da área visível. */
+  definirVisivel(visivel: boolean): void {
+    this.pausado = !visivel;
+    if (!visivel) {
+      this.paginas.forEach((p) => this.liberar(p));
+      return;
+    }
+    for (const p of this.paginas) {
+      if (this.visivel(p)) void this.desenhar(p);
     }
   }
 
   private async desenhar(p: PaginaVisual): Promise<void> {
-    if (this.descartado || p.desenhadaEm === this.escala) return;
+    if (this.descartado || this.pausado || p.desenhadaEm === this.escala) return;
     p.desenhadaEm = this.escala;
     const pagina: PDFPageProxy = await this.documento.getPage(p.numero);
     const viewport = pagina.getViewport({ scale: this.escala });
-    const razao = window.devicePixelRatio || 1;
+    const razao = Math.min(window.devicePixelRatio || 1, PIXEL_RATIO_MAXIMO);
     const canvas = h("canvas", { class: "pdf-canvas" });
     canvas.width = Math.floor(viewport.width * razao);
     canvas.height = Math.floor(viewport.height * razao);
@@ -172,7 +199,11 @@ export class VisualizadorPdf {
       viewport,
       transform: razao !== 1 ? [razao, 0, 0, razao, 0, 0] : undefined,
     }).promise;
-    if (this.descartado || p.desenhadaEm !== this.escala) return;
+    if (this.descartado || this.pausado || p.desenhadaEm !== this.escala) {
+      canvas.width = 0;
+      canvas.height = 0;
+      return;
+    }
     p.canvas?.remove();
     p.canvas = canvas;
     p.caixa.prepend(canvas);
@@ -267,6 +298,7 @@ export class VisualizadorPdf {
     this.descartado = true;
     this.onMarca = null;
     this.observador?.disconnect();
+    this.paginas.forEach((p) => this.liberar(p));
     void this.documento.loadingTask.destroy();
   }
 }

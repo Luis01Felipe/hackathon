@@ -153,3 +153,34 @@ Teste ponta a ponta sob o prefixo `/editalcheck/` (simulando o Traefik):
 - com WebGL desligado, o plano B aparece com a explicação.
 
 O 3D do modelo do servidor não foi reproduzido localmente. Se falhar de novo, precisamos do erro do console do navegador (F12) e do tamanho do arquivo IFC.
+
+### 3D intermitente no servidor (23/11/2026)
+
+**Sintoma:** depois das correções acima, o PDF e os downloads funcionaram, mas o 3D mostrou "O navegador desligou a aceleração 3D no meio do caminho". Ao abrir o site de novo, o mesmo modelo renderizou. Ou seja, a falha é intermitente.
+
+**Comparação com a versão anterior à v2:** as bibliotecas 3D (`@thatopen/*`, `three`, `web-ifc`) e o CSS do visualizador são os mesmos. A diferença está em três pontos:
+
+- **Memória de vídeo:** a v2 acrescentou dois visualizadores de PDF. Cada página desenhada fica num canvas na GPU. As páginas nunca eram liberadas e dividiam a memória de vídeo com o 3D.
+- **Reação à perda de contexto WebGL:** a versão anterior a ignorava (tela parada). A primeira correção cobria o 3D com o plano B na hora.
+- **Restauração do That Open:** o próprio `SimpleRenderer` tenta restaurar o contexto. Nos testes com `WEBGL_lose_context`, o contexto volta, mas a tela fica em branco.
+
+**Correção: o 3D se recupera sozinho.**
+
+- **Recriação após queda:** quando o contexto cai, o visualizador é recriado num canvas novo a partir dos fragments já convertidos, guardados em memória. Não há nova conversão do IFC. Se a queda acontece durante a conversão, ela termina, o modelo é guardado e o visualizador é recriado.
+- **Limite de tentativas:** até 3 recriações seguidas, com espera crescente. A contagem zera depois de 1 minuto estável. Só depois aparece o plano B, com "Tentar de novo".
+- **Aba em segundo plano:** a recriação espera a aba do navegador voltar a ficar visível.
+- **Menos memória de vídeo:**
+  - densidade de pixels do 3D limitada a 1,5;
+  - o 3D para de desenhar quando a aba Edital está na tela;
+  - o PDF libera as páginas que saem da área visível e todas as páginas quando a aba fica escondida.
+- **Defeito achado no teste:** o worker do Fragments recebe o buffer por transferência e o esvazia. A segunda recriação falhava com "ArrayBuffer already detached". Agora cada carga recebe uma cópia.
+
+**Teste (Playwright, sob `/editalcheck/`):** forçamos a perda de contexto com `WEBGL_lose_context` em 5 casos:
+
+- queda com retorno;
+- queda sem retorno;
+- queda durante a conversão de um IFC4X3 georreferenciado;
+- alternância repetida com a aba Edital;
+- quedas seguidas até o plano B e depois "Tentar de novo".
+
+Em todos, o modelo volta a aparecer, sem erros no console.

@@ -112,8 +112,27 @@ function seloOrigem(apt: Apontamento): HTMLElement {
   );
 }
 const ORDEM_SEVERIDADE: Record<string, number> = { alta: 0, media: 1, baixa: 2 };
-/** Tempo máximo da conversão do IFC sem nenhum avanço antes de mostrar o plano B. */
+/** Tempo máximo da conversão do IFC sem nenhum avanço antes de recriar o visualizador. */
 const LIMITE_SEM_AVANCO_MS = 3 * 60 * 1000;
+/** Recriações automáticas seguidas do 3D antes do plano B. */
+const MAX_RECRIACOES_3D = 3;
+/** Depois desse tempo estável, uma nova queda volta a contar do zero. */
+const ESTAVEL_MS = 60 * 1000;
+
+const esperar = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+
+/** Com a aba do navegador em segundo plano, a GPU fica para depois: espera ela reaparecer. */
+const esperarAba = () =>
+  document.visibilityState === "visible"
+    ? Promise.resolve()
+    : new Promise<void>((resolve) => {
+        const aoMudar = () => {
+          if (document.visibilityState !== "visible") return;
+          document.removeEventListener("visibilitychange", aoMudar);
+          resolve();
+        };
+        document.addEventListener("visibilitychange", aoMudar);
+      });
 const VARIANTE_SEVERIDADE: Record<string, string> = { alta: "alta", media: "media", baixa: "baixa" };
 const VARIANTE_CHECKLIST: Record<string, string> = { presente: "sucesso", parcial: "media", ausente: "alta" };
 
@@ -409,9 +428,25 @@ export function renderResultados(ctx: Ctx): HTMLElement {
     h("div", { class: "viewer-area" }, canvasHost, overlay),
   );
 
+  // Recuperação automática do 3D. Cada montagem tem um número: montagens antigas
+  // (substituídas por uma recuperação) param de mexer na tela. O IFC convertido fica
+  // em memória como fragments, e a recriação num canvas novo não converte de novo.
+  let montagem = 0;
+  let recriacoes = 0;
+  let fragmentosEmCache: ArrayBuffer | null = null;
+  const vigente = (minha: number) => minhaGeracao === geracao && minha === montagem;
+  const areaViewer = () => blocoViewer.querySelector(".viewer-area");
+
+  const avisoNoViewer = (texto: string) => {
+    if (!overlay.isConnected) areaViewer()?.append(overlay);
+    overlay.classList.remove("viewer-falha");
+    limpar(overlay);
+    overlay.append(carregando(texto));
+  };
+
   const planoB = (motivo: string) => {
     limpar(overlay);
-    if (!overlay.isConnected) blocoViewer.querySelector(".viewer-area")?.append(overlay);
+    if (!overlay.isConnected) areaViewer()?.append(overlay);
     overlay.classList.add("viewer-falha");
     overlay.append(
       h(
@@ -422,46 +457,80 @@ export function renderResultados(ctx: Ctx): HTMLElement {
         h(
           "p",
           null,
-          "Use o relatório HTML ou abra o BCF numa ferramenta BIM que leia BCF. O restante da tela continua funcionando.",
+          `Tentamos recuperar ${MAX_RECRIACOES_3D} vezes. Use o relatório HTML ou abra o BCF numa ferramenta BIM `,
+          "que leia BCF. O restante da tela continua funcionando.",
         ),
         h(
           "div",
           { class: "acoes" },
           linkDownload("Relatório HTML", urls.relatorioHtml(vid)),
           linkDownload("BCF dos apontamentos do modelo", urls.bcf(vid)),
-          botao("Tentar de novo", () => reiniciarViewer(), "fantasma"),
+          botao(
+            "Tentar de novo",
+            () => {
+              recriacoes = 0;
+              avisoNoViewer("Preparando o visualizador 3D…");
+              void montarViewer();
+            },
+            "fantasma",
+          ),
         ),
       ),
     );
   };
 
-  const reiniciarViewer = () => {
+  /** Recria o visualizador com espera crescente; depois do limite, mostra o plano B. */
+  const recuperar = async (motivo: string) => {
+    if (minhaGeracao !== geracao) return;
+    montagem += 1; // cala a montagem que falhou
+    recriacoes += 1;
+    if (recriacoes > MAX_RECRIACOES_3D) {
+      viewer?.dispose();
+      viewer = null;
+      planoB(motivo);
+      return;
+    }
+    console.warn(`EditalCheck: recuperando o 3D (${recriacoes}/${MAX_RECRIACOES_3D}): ${motivo}`);
+    avisoNoViewer(`Recuperando o visualizador 3D (tentativa ${recriacoes} de ${MAX_RECRIACOES_3D})…`);
+    await esperarAba();
+    await esperar(800 * recriacoes);
+    if (minhaGeracao !== geracao) return;
+    await montarViewer();
+  };
+
+  const aoPerderContexto = (v: Viewer3D) => {
+    avisoNoViewer("O navegador reiniciou a aceleração 3D. Recuperando o modelo…");
+    // Durante a conversão, quem recria é a montagem, depois de guardar o modelo.
+    if (v.carregado) void guardarFragmentos(v).then(() => recuperar("O navegador desligou a aceleração 3D."));
+  };
+
+  /** Guarda o modelo convertido para uma recuperação rápida. */
+  const guardarFragmentos = async (v: Viewer3D) => {
+    if (fragmentosEmCache) return;
+    try {
+      const buffer = await v.exportarFragmentos();
+      if (buffer && minhaGeracao === geracao) fragmentosEmCache = buffer;
+    } catch (e) {
+      console.warn("EditalCheck: não foi possível guardar o modelo convertido", e);
+    }
+  };
+
+  const montarViewer = async (): Promise<void> => {
+    const minha = ++montagem;
     viewer?.dispose();
     viewer = null;
     limpar(canvasHost);
-    limpar(overlay);
-    overlay.classList.remove("viewer-falha");
-    overlay.append(carregando("Preparando o visualizador 3D…"));
-    void iniciarViewer();
-  };
-
-  const iniciarViewer = async () => {
+    botaoTransparencia.textContent = "Sem requisito: translúcido";
     let ultimoAvanco = performance.now();
-    let falhou = false;
-    const falhar = (motivo: string) => {
-      if (falhou || minhaGeracao !== geracao) return;
-      falhou = true;
-      planoB(motivo);
-    };
-    // Vigia: a conversão roda no navegador e pode travar sem erro (modelo grande demais).
+    // Vigia: a conversão roda no navegador e pode travar sem erro.
     const vigia = window.setInterval(() => {
-      if (minhaGeracao !== geracao) {
+      if (!vigente(minha)) {
         window.clearInterval(vigia);
         return;
       }
       if (performance.now() - ultimoAvanco > LIMITE_SEM_AVANCO_MS) {
         window.clearInterval(vigia);
-        falhar(
+        void recuperar(
           `A conversão do IFC ficou mais de ${LIMITE_SEM_AVANCO_MS / 60000} minutos sem avançar. ` +
             "O modelo pode ser grande demais para este computador.",
         );
@@ -469,12 +538,15 @@ export function renderResultados(ctx: Ctx): HTMLElement {
     }, 5000);
     try {
       const v = await Viewer3D.criar(canvasHost);
-      if (minhaGeracao !== geracao) {
+      if (!vigente(minha)) {
         v.dispose();
         return;
       }
       viewer = v;
-      v.onFalha = (motivo) => falhar(motivo);
+      v.definirVisivel(visao === "painel");
+      v.onContextoPerdido = () => {
+        if (vigente(minha)) aoPerderContexto(v);
+      };
       v.onPick = (escolha) => {
         if (!escolha) return;
         if (!escolha.globalId) {
@@ -484,32 +556,49 @@ export function renderResultados(ctx: Ctx): HTMLElement {
         }
         mostrarElemento(escolha.globalId, false);
       };
-      limpar(overlay);
-      overlay.append(carregando("Convertendo o IFC no navegador…"));
-      await v.carregarIfc(estado.ifcLocal ?? urls.modeloIfc(projetoId), (p) => {
-        ultimoAvanco = performance.now();
-        const fracao = p > 1 ? p / 100 : p;
-        overlay.querySelector(".carregando")?.replaceWith(
-          carregando(`Convertendo o IFC no navegador… ${Math.round(fracao * 100)}%`),
-        );
-      });
+      if (fragmentosEmCache) {
+        avisoNoViewer("Recarregando o modelo 3D…");
+        await v.carregarFragmentos(fragmentosEmCache);
+      } else {
+        avisoNoViewer("Convertendo o IFC no navegador…");
+        await v.carregarIfc(estado.ifcLocal ?? urls.modeloIfc(projetoId), (p) => {
+          ultimoAvanco = performance.now();
+          if (!vigente(minha)) return;
+          const fracao = p > 1 ? p / 100 : p;
+          overlay.querySelector(".carregando")?.replaceWith(
+            carregando(`Convertendo o IFC no navegador… ${Math.round(fracao * 100)}%`),
+          );
+        });
+      }
       window.clearInterval(vigia);
-      if (minhaGeracao !== geracao || falhou) return;
-      overlay.remove();
+      if (!vigente(minha)) return;
+      if (!v.contextoAtivo) {
+        // Caiu durante a conversão: guarda o modelo e recria num canvas novo.
+        await guardarFragmentos(v);
+        if (vigente(minha)) void recuperar("O navegador desligou a aceleração 3D durante a conversão.");
+        return;
+      }
+      void guardarFragmentos(v);
       try {
         await v.mapearElementos([...indices.elementos.values()].map((e) => ({ global_id: e.global_id, step_id: e.step_id })));
         await v.aplicarEstados(relatorio.estado_elementos);
       } catch (e) {
         // O modelo já aparece; só as cores por situação ficaram de fora.
         console.error("EditalCheck: falha ao colorir o modelo", e);
-        blocoViewer.querySelector(".viewer-area")?.append(
+        areaViewer()?.append(
           h("div", { class: "viewer-aviso" }, `Modelo carregado sem as cores de conformidade: ${mensagemErro(e)}`),
         );
       }
+      if (!vigente(minha) || !v.contextoAtivo) return;
+      overlay.remove();
+      window.setTimeout(() => {
+        if (vigente(minha) && v.contextoAtivo) recriacoes = 0;
+      }, ESTAVEL_MS);
     } catch (e) {
       window.clearInterval(vigia);
+      if (!vigente(minha)) return;
       console.error("EditalCheck: falha no visualizador 3D", e);
-      falhar(mensagemErro(e));
+      void recuperar(mensagemErro(e));
     }
   };
   // As duas visões ficam montadas e só alternam a visibilidade: o modelo 3D não é
@@ -527,6 +616,9 @@ export function renderResultados(ctx: Ctx): HTMLElement {
     }
     painelConteudo.hidden = nova !== "painel";
     editalConteudo.hidden = nova !== "edital";
+    // O 3D escondido não desenha: a GPU fica livre para o PDF, e vice-versa.
+    requestAnimationFrame(() => viewer?.definirVisivel(visao === "painel"));
+    abaEdital?.definirVisivel(nova === "edital");
     if (nova === "edital" && !abaEdital) {
       abaEdital = renderAbaEdital(relatorio, decisoes, {
         foco: focoEdital,
@@ -544,7 +636,7 @@ export function renderResultados(ctx: Ctx): HTMLElement {
     }
     if (nova === "painel" && !viewerIniciado && !relatorio.sem_modelo) {
       viewerIniciado = true;
-      requestAnimationFrame(() => void iniciarViewer());
+      requestAnimationFrame(() => void montarViewer());
     }
   };
 

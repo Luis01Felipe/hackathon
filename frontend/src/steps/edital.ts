@@ -12,6 +12,8 @@ const filtros = { edital: true, modelo: true, severidade: "todas" };
 
 export interface AbaEdital {
   elemento: HTMLElement;
+  /** Aba escondida libera a memória das páginas do PDF. */
+  definirVisivel: (visivel: boolean) => void;
   dispose: () => void;
 }
 
@@ -289,6 +291,7 @@ export function renderAbaEdital(r: Relatorio, decisoes: Map<string, Decisao>, op
 
   return {
     elemento,
+    definirVisivel: (visivel) => visualizador?.definirVisivel(visivel),
     dispose: () => {
       descartado = true;
       visualizador?.dispose();
