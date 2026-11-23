@@ -1,6 +1,6 @@
 """CLI do EditalCheck (Typer): roda o pipeline sem interface, para testes e demo."""
 
-import shutil
+import json
 import time
 from pathlib import Path
 from typing import Annotated
@@ -11,6 +11,7 @@ from editalcheck.application.errors import EditalCheckError
 from editalcheck.bootstrap import Container, configurar_logs, construir
 from editalcheck.config import RAIZ_REPO, carregar
 from editalcheck.domain.models import Projeto, Relatorio
+from editalcheck.entrypoints.api import dto
 from editalcheck.evaluation import Metricas, avaliar, carregar_gabarito
 
 app = typer.Typer(
@@ -58,10 +59,24 @@ def _imprimir_relatorio(relatorio: Relatorio) -> None:
     typer.echo(
         f"  Apontamentos: {len(relatorio.apontamentos)} {dict(i.apontamentos_por_severidade)}"
     )
+    typer.echo(
+        f"  Por origem: edital {i.apontamentos_por_origem.get('edital', 0)} · "
+        f"modelo {i.apontamentos_por_origem.get('modelo', 0)} · "
+        f"verificação manual {i.verificacao_manual}"
+    )
+    if i.licoes_total:
+        typer.echo(
+            f"  Lições aprendidas ausentes do edital: {i.licoes_nao_explicitas}/{i.licoes_total}"
+        )
+    if relatorio.custo:
+        typer.echo(
+            f"  Consumo de IA: {relatorio.custo.tokens_entrada} tokens de entrada, "
+            f"{relatorio.custo.tokens_saida} de saída"
+        )
     typer.secho("\nApontamentos", bold=True)
     for a in relatorio.apontamentos:
         typer.echo(
-            f"  {a.id} [{a.severidade.value:5}] {a.tipo.value:17} → {a.destinatario.value:11} {a.titulo}"
+            f"  {a.id} [{a.severidade.value:5}] {a.origem.value.upper():6} {a.tipo.value:19} {a.titulo}"
         )
     for aviso in relatorio.avisos:
         typer.secho(f"  aviso: {aviso}", fg="yellow")
@@ -104,7 +119,7 @@ def topicos(edital: Annotated[Path, typer.Argument(exists=True, help="Edital em 
     from editalcheck.adapters.pdf.pymupdf_reader import PyMuPdfEditalReader
     from editalcheck.domain.topics import segmentar
 
-    for t in segmentar(PyMuPdfEditalReader().read(str(edital))):
+    for t in segmentar(PyMuPdfEditalReader().read(edital.read_bytes(), edital.name)):
         selo = "BIM" if t.relevante_bim else "   "
         typer.echo(f"{t.id} {selo} p.{t.pagina_inicio}-{t.pagina_fim}  {t.numero} {t.titulo}")
 
@@ -114,7 +129,7 @@ def modelo(ifc: Annotated[Path, typer.Argument(exists=True, help="Modelo IFC")])
     """Mostra o schema, as classes e a saúde do modelo IFC."""
     from editalcheck.adapters.ifc.ifcopenshell_model import IfcOpenShellModelReader
 
-    resumo = IfcOpenShellModelReader().load(str(ifc))
+    resumo = IfcOpenShellModelReader().load(ifc.read_bytes(), ifc.name)
     typer.echo(f"Schema: {resumo.schema} · {resumo.total_elementos} elementos")
     for c in resumo.classes:
         typer.echo(
@@ -141,25 +156,34 @@ def pipeline(
     gabarito: Annotated[
         Path | None, typer.Option(help="gabarito.json para medir as métricas")
     ] = None,
+    licoes: Annotated[
+        list[Path] | None,
+        typer.Option(exists=True, help="Documento de lições aprendidas (.txt ou .pdf)"),
+    ] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
-    """Marco 1: edital + IFC → EIR (aprovação automática) → IDS → verificação → relatório e BCF."""
+    """Edital + IFC (+ lições) → RI (aprovação automática) → IDS → verificação → relatório e BCF."""
     c = _container(verbose)
     gab = carregar_gabarito(gabarito) if gabarito else None
     numeros = topicos_numeros.split(",") if topicos_numeros else (gab or {}).get("topicos_demo")
     inicio = time.perf_counter()
     try:
         projeto = c.importar.executar(
-            edital.read_bytes(), edital.name, modelo_ifc.read_bytes(), modelo_ifc.name
+            edital.read_bytes(),
+            edital.name,
+            modelo_ifc.read_bytes(),
+            modelo_ifc.name,
+            [(arquivo.read_bytes(), arquivo.name) for arquivo in licoes or []],
         )
         typer.echo(
             f"Projeto {projeto.id}: {len(projeto.edital.paginas)} páginas, "
-            f"{len(projeto.topicos)} tópicos, schema {projeto.modelo.schema}, modo IA: {c.settings.modo_ia}"
+            f"{len(projeto.topicos)} tópicos, schema {projeto.modelo.schema}, "
+            f"{len(projeto.licoes)} lições aprendidas, modo IA: {c.settings.modo_ia}"
         )
         selecionados = _selecionar(projeto, numeros)
         resultado_eir = c.gerar_eir.executar(projeto.id, selecionados)
         typer.echo(
-            f"EIR: {len(resultado_eir.eir.requisitos)} requisitos ({resultado_eir.descartados} descartados por S2)"
+            f"RI: {len(resultado_eir.eir.requisitos)} requisitos ({resultado_eir.descartados} descartados por S2)"
         )
         for aviso in resultado_eir.avisos:
             typer.secho(f"  aviso: {aviso}", fg="yellow")
@@ -182,16 +206,24 @@ def pipeline(
         raise typer.Exit(1)
 
     saida.mkdir(parents=True, exist_ok=True)
-    for nome in ("relatorio.json", "relatorio.html", "resultado.bcf"):
-        origem = c.repositorio.relatorio_file(verificacao.id, nome)
-        if origem:
-            shutil.copy(origem, saida / nome)
+    (saida / "relatorio.json").write_text(
+        json.dumps(dto.relatorio(relatorio, projeto.modelo), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    for nome in ("relatorio.html", "resultado.bcf"):
+        conteudo = c.repositorio.read_relatorio_file(verificacao.id, nome)
+        if conteudo:
+            (saida / nome).write_bytes(conteudo)
     ids_xml = c.repositorio.read_file(projeto.id, "ids.xml")
     if ids_xml:
         (saida / "editalcheck.ids").write_bytes(ids_xml)
     projeto = c.repositorio.get(projeto.id)
     if projeto and projeto.eir:
-        (saida / "eir.xlsx").write_bytes(c.exportador_eir.to_xlsx(projeto.eir, projeto))
+        (saida / "requisitos-informacao.xlsx").write_bytes(
+            c.exportador_eir.to_xlsx(projeto.eir, projeto)
+        )
+    (saida / "edital-anotado.pdf").write_bytes(c.exportar_edital.anotado(verificacao.id))
+    (saida / "esclarecimentos.xlsx").write_bytes(c.exportar_edital.matriz(verificacao.id))
 
     _imprimir_relatorio(relatorio)
     typer.echo(f"\nTempo total: {duracao:.1f} s · arquivos em {saida.resolve()}")
@@ -214,12 +246,14 @@ def demo(
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
     """Roda o pipeline com os dados de data/demo e mede as métricas do gabarito."""
+    licoes = PASTA_DEMO / "licoes_aprendidas.txt"
     pipeline(
         edital=PASTA_DEMO / "edital.pdf",
         modelo_ifc=PASTA_DEMO / "modelo.ifc",
         topicos_numeros=None,
         saida=saida,
         gabarito=PASTA_DEMO / "gabarito.json",
+        licoes=[licoes] if licoes.exists() else None,
         verbose=verbose,
     )
 

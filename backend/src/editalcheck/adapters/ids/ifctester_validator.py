@@ -2,9 +2,9 @@
 
 import re
 
-import ifcopenshell
 from ifctester import ids
 
+from editalcheck.adapters.ifc.abrir import abrir_ifc
 from editalcheck.domain.models import FalhaElemento, ResultadoEspecificacao
 
 _TRADUCOES: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -54,9 +54,9 @@ def _requisito_id(especificacao: ids.Specification) -> str | None:
 
 
 class IfcTesterValidator:
-    def validate(self, ids_xml: bytes, ifc_path: str) -> list[ResultadoEspecificacao]:
+    def validate(self, ids_xml: bytes, conteudo_ifc: bytes) -> list[ResultadoEspecificacao]:
         documento = ids.from_string(ids_xml.decode("utf-8"))
-        modelo = ifcopenshell.open(ifc_path)
+        modelo = abrir_ifc(conteudo_ifc)
         documento.validate(modelo)
         return [self._resultado(spec) for spec in documento.specifications]
 

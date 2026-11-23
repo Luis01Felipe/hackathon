@@ -6,11 +6,14 @@ from typing import Protocol
 from editalcheck.domain.models import (
     AmbiguidadeConfirmada,
     Apontamento,
+    CaixaEnvolvente,
     ContextoVocabulario,
     Contradicao,
+    DecisaoApontamento,
     Edital,
     Eir,
     ItemChecklist,
+    LicaoAprendida,
     ModeloResumo,
     Projeto,
     PropriedadeOficial,
@@ -24,15 +27,18 @@ from editalcheck.domain.models import (
     Topico,
     TrechoVago,
     Verificacao,
+    VerificacaoLicao,
 )
 
 
 class EditalReader(Protocol):
-    def read(self, pdf_path: str) -> Edital: ...
+    """Lê um documento (PDF ou texto) em memória e devolve o texto por página."""
+
+    def read(self, conteudo: bytes, nome: str) -> Edital: ...
 
 
 class IfcModelReader(Protocol):
-    def load(self, ifc_path: str) -> ModeloResumo: ...
+    def load(self, conteudo: bytes, nome: str) -> ModeloResumo: ...
 
     def official_properties(self, schema: str, ifc_class: str) -> list[PropriedadeOficial]: ...
 
@@ -45,6 +51,12 @@ class IfcModelReader(Protocol):
         ...
 
 
+class ElementGeometry(Protocol):
+    def boxes(self, conteudo_ifc: bytes, global_ids: Sequence[str]) -> dict[str, CaixaEnvolvente]:
+        """Caixa envolvente de cada elemento em coordenadas do projeto (metros)."""
+        ...
+
+
 class TopicClassifier(Protocol):
     """RF-11: nomeia/resume tópicos e marca os relevantes para BIM."""
 
@@ -53,6 +65,28 @@ class TopicClassifier(Protocol):
 
 class RequirementExtractor(Protocol):
     def extract(self, topico: Topico, contexto: ContextoVocabulario) -> list[Requisito]: ...
+
+
+class LessonExtractor(Protocol):
+    """Lê as lições aprendidas de um documento (texto por página)."""
+
+    def extract(self, documento: Edital) -> list[LicaoAprendida]: ...
+
+
+class LessonChecker(Protocol):
+    """Procura cada lição no edital (a evidência é conferida depois, por código)."""
+
+    def check(
+        self, licoes: Sequence[LicaoAprendida], edital: Edital, topicos: Sequence[Topico]
+    ) -> list[VerificacaoLicao]: ...
+
+
+class ReferenceContext(Protocol):
+    """Documentos de referência autorizados, enviados ao LLM só como dado (G3)."""
+
+    def select(self, texto: str) -> list[tuple[str, str]]:
+        """Trechos (documento, texto) mais relevantes para o texto, dentro do orçamento."""
+        ...
 
 
 class EditalAnalyzer(Protocol):
@@ -72,7 +106,14 @@ class DictionaryLookup(Protocol):
 
 
 class IdsBuilder(Protocol):
-    def build(self, eir: Eir, schema: str, titulo: str) -> bytes: ...
+    def build(
+        self,
+        eir: Eir,
+        versao_ifc: str,
+        titulo: str,
+        marco: str | None = None,
+        requisitos: Sequence[Requisito] | None = None,
+    ) -> bytes: ...
 
     def check(self, ids_xml: bytes) -> list[str]:
         """S6: recarrega o IDS e devolve a lista de erros (vazia se válido)."""
@@ -80,7 +121,7 @@ class IdsBuilder(Protocol):
 
 
 class IfcValidator(Protocol):
-    def validate(self, ids_xml: bytes, ifc_path: str) -> list[ResultadoEspecificacao]: ...
+    def validate(self, ids_xml: bytes, conteudo_ifc: bytes) -> list[ResultadoEspecificacao]: ...
 
 
 class RecommendationWriter(Protocol):
@@ -94,11 +135,34 @@ class ReportWriter(Protocol):
 
 
 class BcfWriter(Protocol):
-    def write(self, relatorio: Relatorio, ifc_path: str) -> bytes: ...
+    def write(self, relatorio: Relatorio, modelo: ModeloResumo) -> bytes: ...
 
 
 class EirExporter(Protocol):
     def to_xlsx(self, eir: Eir, projeto: Projeto) -> bytes: ...
+
+
+class EditalAnnotator(Protocol):
+    """Cópia do edital com destaque e nota em cada trecho apontado (RF-151)."""
+
+    def annotate(
+        self,
+        pdf: bytes,
+        apontamentos: Sequence[Apontamento],
+        decisoes: Sequence[DecisaoApontamento],
+    ) -> bytes: ...
+
+
+class ClarificationExporter(Protocol):
+    """Matriz de esclarecimentos do edital (RF-152)."""
+
+    def to_xlsx(self, relatorio: Relatorio) -> bytes: ...
+
+
+class AuditLog(Protocol):
+    """Log de auditoria SEM conteúdo de documento (RNF-12)."""
+
+    def record(self, evento: str, **campos: object) -> None: ...
 
 
 class ProjectRepository(Protocol):
@@ -106,9 +170,9 @@ class ProjectRepository(Protocol):
 
     def get(self, projeto_id: str) -> Projeto | None: ...
 
-    def file_path(self, projeto_id: str, nome: str) -> str: ...
+    def delete(self, projeto_id: str) -> bool: ...
 
-    def write_file(self, projeto_id: str, nome: str, conteudo: bytes) -> str: ...
+    def write_file(self, projeto_id: str, nome: str, conteudo: bytes) -> None: ...
 
     def read_file(self, projeto_id: str, nome: str) -> bytes | None: ...
 
@@ -116,8 +180,10 @@ class ProjectRepository(Protocol):
 
     def get_verificacao(self, verificacao_id: str) -> Verificacao | None: ...
 
-    def save_relatorio(self, relatorio: Relatorio, html: str, bcf: bytes | None) -> None: ...
+    def save_relatorio(self, relatorio: Relatorio) -> None: ...
 
     def get_relatorio(self, verificacao_id: str) -> Relatorio | None: ...
 
-    def relatorio_file(self, verificacao_id: str, nome: str) -> str | None: ...
+    def write_relatorio_file(self, verificacao_id: str, nome: str, conteudo: bytes) -> None: ...
+
+    def read_relatorio_file(self, verificacao_id: str, nome: str) -> bytes | None: ...

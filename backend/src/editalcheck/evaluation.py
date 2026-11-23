@@ -80,7 +80,8 @@ def avaliar(
     ids_valido: bool | None,
     tempo_pipeline_s: float | None = None,
 ) -> Metricas:
-    extraidos = [r for r in requisitos if not r.sugerido_por_lacuna]
+    # O gabarito cobre só o edital: lacunas e lições aprendidas ficam fora da métrica.
+    extraidos = [r for r in requisitos if not r.sugerido_por_lacuna and r.gerado_por != "licao"]
     itens = gabarito["requisitos"]
     encontrados = [i for i in itens if any(_casa(i, r) for r in extraidos)]
     corretos = [r for r in extraidos if any(_casa(i, r) for i in itens)]

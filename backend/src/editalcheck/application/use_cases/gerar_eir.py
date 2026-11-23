@@ -1,9 +1,13 @@
-"""Caso de uso: gerar o EIR dos tópicos selecionados, com salvaguardas S2–S4."""
+"""Caso de uso: gerar os requisitos de informação (RI) dos tópicos selecionados.
+
+Aplica as salvaguardas S2 a S4. As lições aprendidas também geram requisitos
+propostos (RF-105), que passam pela aprovação humana como os demais.
+"""
 
 from collections.abc import Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 
+from editalcheck.application.consumo import ExecutorComContexto, em_projeto
 from editalcheck.application.errors import EntradaInvalidaError, NaoEncontradoError
 from editalcheck.application.observability import agora, etapa, logger
 from editalcheck.application.ports import (
@@ -20,8 +24,11 @@ from editalcheck.domain.evidence import (
 )
 from editalcheck.domain.models import (
     ContextoVocabulario,
+    Edital,
     Eir,
+    LicaoAprendida,
     OrigemVocabulario,
+    Pagina,
     Projeto,
     PropriedadeOficial,
     Requisito,
@@ -33,6 +40,10 @@ from editalcheck.domain.topics import expandir_selecao, paginas_do_topico
 from editalcheck.domain.vocabulary import classificar_origem
 
 MAX_PARALELO = 4
+AVISO_LICAO = (
+    "Veio de uma lição aprendida, não do edital. Para cobrar do contratado, inclua a regra "
+    "no edital."
+)
 
 
 @dataclass(frozen=True)
@@ -217,7 +228,7 @@ class GerarEir:
         termos: dict[str, TermoDicionario] = {}
         with (
             etapa("bsdd.contexto", consultas=len(consultas)),
-            ThreadPoolExecutor(self._paralelismo) as executor,
+            ExecutorComContexto(self._paralelismo) as executor,
         ):
             for resultado in executor.map(self._dicionario.search, consultas):
                 for termo in resultado:
@@ -245,6 +256,10 @@ class GerarEir:
                 )
 
     def executar(self, projeto_id: str, topico_ids: Sequence[str]) -> ResultadoEir:
+        with em_projeto(projeto_id):
+            return self._executar(projeto_id, topico_ids)
+
+    def _executar(self, projeto_id: str, topico_ids: Sequence[str]) -> ResultadoEir:
         projeto = self._repo.get(projeto_id)
         if projeto is None:
             raise NaoEncontradoError("Projeto não encontrado.")
@@ -259,8 +274,11 @@ class GerarEir:
         contexto = self._validador.contexto(
             projeto, selecionados, self._vocab, self._termos_bsdd(selecionados, avisos)
         )
-        with ThreadPoolExecutor(self._paralelismo) as executor:
+        with ExecutorComContexto(self._paralelismo) as executor:
             extraidos = list(executor.map(lambda t: self._extrair(t, contexto), selecionados))
+            das_licoes = list(
+                executor.map(lambda licao: self._da_licao(projeto, licao), projeto.licoes)
+            )
 
         aprovados: list[Requisito] = []
         vistos: set[tuple] = set()
@@ -284,6 +302,15 @@ class GerarEir:
                     continue
                 vistos.add(chave)
                 aprovados.append(validado)
+        for requisitos, aviso in das_licoes:
+            if aviso:
+                avisos.append(aviso)
+            for requisito in requisitos:
+                chave = _chave(requisito)
+                if chave in vistos:
+                    continue  # o edital já exige o mesmo: a lição não duplica
+                vistos.add(chave)
+                aprovados.append(requisito)
         if descartados:
             avisos.append(
                 f"{descartados} requisito(s) descartado(s): o trecho citado não existe no edital (salvaguarda S2)."
@@ -302,3 +329,46 @@ class GerarEir:
         projeto.ids_gerado = False
         self._repo.save(projeto)
         return ResultadoEir(eir=eir, avisos=tuple(avisos), descartados=descartados)
+
+    def _da_licao(
+        self, projeto: Projeto, licao: LicaoAprendida
+    ) -> tuple[list[Requisito], str | None]:
+        """Requisitos propostos a partir de uma lição aprendida (RF-105).
+
+        O extrator lê a regra como se fosse um tópico. A citação é conferida contra
+        o próprio texto da lição; a evidência final é o trecho literal do documento
+        de lições, já conferido na importação.
+        """
+        pagina = licao.evidencia.pagina
+        texto = f"{licao.evidencia.trecho}\n{licao.regra}"
+        topico = Topico(
+            id=licao.id,
+            numero=licao.id,
+            titulo=f"Lição aprendida: {licao.titulo}",
+            nivel=1,
+            pagina_inicio=pagina,
+            pagina_fim=pagina,
+            texto=f"[p. {pagina}]\n{texto}",
+            relevante_bim=True,
+        )
+        fonte = Edital(arquivo=licao.documento, paginas=(Pagina(numero=pagina, texto=texto),))
+        extras = [licao.ifc_class] if licao.ifc_class else []
+        contexto = self._validador.contexto(projeto, [topico], self._vocab, classes_extras=extras)
+        requisitos, aviso = self._extrair(topico, contexto)
+        validados: list[Requisito] = []
+        for requisito in requisitos:
+            if conferir_evidencia(requisito.evidencia, fonte) is None:
+                continue
+            ajustado = replace(
+                requisito,
+                topico_id="LICOES",
+                evidencia=licao.evidencia,
+                clausula=None,
+                gerado_por="licao",
+                licao_id=licao.id,
+                avisos=(*requisito.avisos, AVISO_LICAO),
+            )
+            validados.append(
+                self._validador.validar_mapeamento(ajustado, projeto.modelo.schema, contexto)
+            )
+        return validados, (f"Lição {licao.id}: {aviso}" if aviso else None)

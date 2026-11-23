@@ -1,0 +1,8 @@
+# Tempo manual MEDIDO pelo time para comparar com o tempo e o custo da IA (RF-197).
+# Não estime: cronometre uma pessoa fazendo a mesma tarefa e preencha os campos.
+# Enquanto "horas" estiver vazio, o painel "Custo e tempo" mostra "não medido".
+tarefa: "Extrair os requisitos de informação de um tópico do edital, montar o IDS e verificar o IFC à mão"
+horas:            # ex.: 2.5 (número de horas medido)
+amostra: ""       # ex.: "1 tópico (5.1 Portas) do edital de demonstração"
+metodo: ""        # ex.: "cronômetro, 1 pessoa de BIM, sem IA"
+data: ""          # DD/MM/AAAA

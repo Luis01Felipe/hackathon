@@ -1,7 +1,9 @@
-"""Chamada estruturada ao LLM: prompts versionados, cache em disco e reparo (S1).
+"""Chamada estruturada ao LLM: prompts versionados, cache opcional e reparo (S1).
 
 - RNF-03: temperatura 0, prompts versionados em arquivo e cache por
-  hash(prompt_version + modelo + entrada).
+  hash(prompt_version + modelo + entrada). No modo efêmero não há cache em
+  disco (RF-093): as respostas trazem trechos do edital.
+- RF-195: cada chamada (e cada reparo) informa tokens e duração ao medidor.
 - S1: a resposta precisa validar no schema Pydantic; se falhar, o erro volta
   ao LLM para reparo (máximo 2 tentativas).
 - RNF-05: trocar de provedor exige só um novo ``JsonCompletion``.
@@ -33,6 +35,17 @@ class LlmIndisponivelError(RuntimeError):
 class Uso:
     tokens_entrada: int = 0
     tokens_saida: int = 0
+
+
+class RegistroConsumo(Protocol):
+    def registrar(
+        self,
+        nome_prompt: str,
+        tokens_entrada: int,
+        tokens_saida: int,
+        duracao_s: float,
+        cache: bool = False,
+    ) -> None: ...
 
 
 class JsonCompletion(Protocol):
@@ -70,11 +83,19 @@ class PromptLoader:
 
 
 class StructuredLlm:
-    def __init__(self, cliente: JsonCompletion, prompts: PromptLoader, pasta_cache: Path) -> None:
+    def __init__(
+        self,
+        cliente: JsonCompletion,
+        prompts: PromptLoader,
+        pasta_cache: Path | None,
+        medidor: RegistroConsumo | None = None,
+    ) -> None:
         self._cliente = cliente
         self._prompts = prompts
         self._cache = pasta_cache
-        self._cache.mkdir(parents=True, exist_ok=True)
+        self._medidor = medidor
+        if self._cache is not None:
+            self._cache.mkdir(parents=True, exist_ok=True)
 
     @property
     def modelo(self) -> str:
@@ -93,14 +114,16 @@ class StructuredLlm:
         sistema, versao_sistema = self._prompts.renderizar("sistema")
         prompt, versao = self._prompts.renderizar(nome_prompt, **variaveis)
         versao_total = f"{nome_prompt}@{versao}+sistema@{versao_sistema}"
-        chave = self._chave(versao_total, prompt)
-        arquivo = self._cache / f"{chave}.json"
-        if arquivo.exists():
+        arquivo = self._cache / f"{self._chave(versao_total, prompt)}.json" if self._cache else None
+        if arquivo is not None and arquivo.exists():
             logger.info(json.dumps({"etapa": f"llm.{nome_prompt}", "cache": True}))
+            if self._medidor:
+                self._medidor.registrar(nome_prompt, 0, 0, 0.0, cache=True)
             return schema.model_validate_json(arquivo.read_text(encoding="utf-8"))
 
         resultado = self._gerar_com_reparo(nome_prompt, sistema, prompt, schema)
-        arquivo.write_text(resultado.model_dump_json(), encoding="utf-8")
+        if arquivo is not None:
+            arquivo.write_text(resultado.model_dump_json(), encoding="utf-8")
         return resultado
 
     def _gerar_com_reparo(self, nome: str, sistema: str, prompt: str, schema: type[T]) -> T:
@@ -112,12 +135,15 @@ class StructuredLlm:
                 texto, uso = self._cliente.complete(sistema=sistema, prompt=mensagem, schema=schema)
             except Exception as erro:  # SDKs lançam tipos variados
                 raise LlmIndisponivelError(f"Falha ao chamar o LLM: {erro}") from erro
+            duracao = time.perf_counter() - inicio
+            if self._medidor:
+                self._medidor.registrar(nome, uso.tokens_entrada, uso.tokens_saida, duracao)
             logger.info(
                 json.dumps(
                     {
                         "etapa": f"llm.{nome}",
                         "tentativa": tentativa,
-                        "duracao_s": round(time.perf_counter() - inicio, 2),
+                        "duracao_s": round(duracao, 2),
                         "tokens_entrada": uso.tokens_entrada,
                         "tokens_saida": uso.tokens_saida,
                         "modelo": self._cliente.modelo,

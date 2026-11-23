@@ -53,6 +53,30 @@ class TipoApontamento(StrEnum):
     CONTRADICAO = "contradicao"
     LACUNA_COBERTURA = "lacuna_cobertura"
     QUALIDADE_MODELO = "qualidade_modelo"
+    LICAO_NAO_EXPLICITA = "licao_nao_explicita"
+    DUPLICIDADE = "duplicidade"
+
+
+class OrigemInconsistencia(StrEnum):
+    """Onde está o problema: no edital (o contratante corrige) ou no modelo (o contratado)."""
+
+    EDITAL = "edital"
+    MODELO = "modelo"
+
+
+class FonteEvidencia(StrEnum):
+    """Documento de onde vem o trecho citado."""
+
+    EDITAL = "edital"
+    LICOES = "licoes"
+
+
+class StatusDecisao(StrEnum):
+    PENDENTE = "pendente"
+    ACEITO = "aceito"
+    REJEITADO = "rejeitado"
+    EM_DISCUSSAO = "em_discussao"
+    DISPENSADO = "dispensado"
 
 
 class Destinatario(StrEnum):
@@ -121,9 +145,13 @@ class Topico:
 class Evidencia:
     pagina: int
     trecho: str  # conferido literalmente contra o texto da página
+    fonte: FonteEvidencia = FonteEvidencia.EDITAL
 
 
-# --------------------------------------------------------------------------- requisitos / EIR
+# --------------------------------------------------------------------------- requisitos de informação (RI)
+#
+# No código, a classe ``Eir`` e os nomes ``eir`` representam os Requisitos de
+# Informação (RI). A sigla EIR saiu da interface por ser restrita demais.
 
 
 @dataclass(frozen=True)
@@ -155,8 +183,10 @@ class Requisito:
     status: StatusRequisito = StatusRequisito.PROPOSTO
     sugerido_por_lacuna: bool = False
     clausula: str | None = None  # ex.: "5.1.1"
-    gerado_por: str = "llm"  # llm | regras | usuario | lacuna
+    gerado_por: str = "llm"  # llm | regras | usuario | lacuna | licao
     avisos: tuple[str, ...] = ()
+    marcos: tuple[str, ...] = ()  # IDs de MarcoEntrega; vazio = todos os marcos
+    licao_id: str | None = None  # preenchido quando gerado_por == "licao"
 
     @property
     def aprovado(self) -> bool:
@@ -185,6 +215,37 @@ class Eir:
     def requisitos_para_ids(self) -> tuple[Requisito, ...]:
         return tuple(r for r in self.requisitos if r.entra_no_ids)
 
+    def requisitos_do_marco(self, marco_id: str | None) -> tuple[Requisito, ...]:
+        """Requisitos que entram no IDS de um marco (None = contrato inteiro)."""
+        if marco_id is None:
+            return self.requisitos_para_ids
+        return tuple(r for r in self.requisitos_para_ids if not r.marcos or marco_id in r.marcos)
+
+
+@dataclass(frozen=True)
+class MarcoEntrega:
+    """Momento em que o contratado entrega informação ao contratante."""
+
+    id: str  # MAR-01
+    nome: str  # ex.: "Projeto executivo"
+    descricao: str = ""
+    evidencia: Evidencia | None = None
+
+
+@dataclass(frozen=True)
+class LicaoAprendida:
+    """Regra aprendida em obras anteriores, lida do documento de lições aprendidas."""
+
+    id: str  # LIC-01
+    titulo: str
+    regra: str
+    evidencia: Evidencia  # fonte = LICOES
+    documento: str = ""  # arquivo de lições de onde a regra foi lida
+    contexto: str = ""
+    termos_elemento: tuple[str, ...] = ()  # ex.: ("baterias",) — localiza ambientes no modelo
+    ifc_class: str | None = None
+    extraida_por: str = "regras"  # llm | regras
+
 
 # --------------------------------------------------------------------------- modelo IFC
 
@@ -204,6 +265,21 @@ class ElementoModelo:
     classe: str
     nome: str | None = None
     pavimento: str | None = None
+    nome_longo: str | None = None  # LongName (ambientes)
+
+
+@dataclass(frozen=True)
+class CaixaEnvolvente:
+    """Caixa envolvente em coordenadas do projeto, em metros."""
+
+    minimo: tuple[float, float, float]
+    maximo: tuple[float, float, float]
+
+    @property
+    def centro(self) -> tuple[float, float, float]:
+        x0, y0, z0 = self.minimo
+        x1, y1, z1 = self.maximo
+        return ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
 
 
 @dataclass(frozen=True)
@@ -229,6 +305,19 @@ class ModeloResumo:
     classes: tuple[ClasseModelo, ...]
     elementos: tuple[ElementoModelo, ...]
     saude: SaudeModelo
+    sem_arquivo: bool = False  # modo "revisar edital": nenhum IFC foi enviado
+
+    @staticmethod
+    def vazio(schema: str) -> "ModeloResumo":
+        """Modelo vazio para revisar só o edital (o schema vem da escolha do usuário)."""
+        return ModeloResumo(
+            arquivo="",
+            schema=schema,
+            classes=(),
+            elementos=(),
+            saude=SaudeModelo(schema=schema, total_elementos=0, proxies=0),
+            sem_arquivo=True,
+        )
 
     @property
     def total_elementos(self) -> int:
@@ -337,6 +426,19 @@ class Contradicao:
     explicacao: str
 
 
+@dataclass(frozen=True)
+class VerificacaoLicao:
+    """Resultado da busca de uma lição aprendida no edital."""
+
+    licao_id: str
+    explicita: bool
+    evidencia: Evidencia | None = None  # trecho do edital que explicita a lição
+    trecho_relacionado: Evidencia | None = None  # cláusula do edital que trata do mesmo tema
+    justificativa: str = ""
+    redacao_sugerida: str = ""
+    avaliado_por: str = "regras"  # llm | regras
+
+
 # --------------------------------------------------------------------------- análise A
 
 
@@ -430,6 +532,71 @@ class Apontamento:
     classe_ifc: str | None = None
     propriedades_sugeridas: tuple[PropriedadeSugerida, ...] = ()
     detalhe: str = ""
+    licao_id: str | None = None
+
+    @property
+    def origem(self) -> OrigemInconsistencia:
+        """Edital (o contratante corrige) ou modelo (o contratado corrige)."""
+        if self.tipo in (TipoApontamento.NAO_CONFORMIDADE, TipoApontamento.QUALIDADE_MODELO):
+            return OrigemInconsistencia.MODELO
+        return OrigemInconsistencia.EDITAL
+
+    @property
+    def verificacao_manual(self) -> bool:
+        """Requisito não verificável por IDS: vai para a aba de verificação manual."""
+        return self.tipo == TipoApontamento.NAO_VERIFICAVEL
+
+
+@dataclass(frozen=True)
+class DecisaoApontamento:
+    """Decisão humana sobre um apontamento (registro de consenso entre as partes)."""
+
+    apontamento_id: str
+    status: StatusDecisao
+    comentario: str = ""
+    autor: str = ""
+    data: str = ""  # ISO 8601
+
+    def __post_init__(self) -> None:
+        exige_justificativa = self.status in (StatusDecisao.REJEITADO, StatusDecisao.DISPENSADO)
+        if exige_justificativa and not self.comentario.strip():
+            raise ValueError("Rejeitar ou dispensar um apontamento exige justificativa.")
+
+
+@dataclass(frozen=True)
+class ConsumoEtapa:
+    """Consumo de IA medido numa etapa (tokens informados pelo provedor)."""
+
+    etapa: str
+    chamadas: int = 0
+    chamadas_cache: int = 0
+    tokens_entrada: int = 0
+    tokens_saida: int = 0
+    duracao_s: float = 0.0
+
+
+@dataclass(frozen=True)
+class Custo:
+    """Custo estimado com os preços configurados (nunca fixos no código)."""
+
+    tokens_entrada: int
+    tokens_saida: int
+    usd: float | None  # None quando não há preço configurado
+    preco_entrada_usd_mtok: float | None
+    preco_saida_usd_mtok: float | None
+    fonte_preco: str = ""
+
+
+@dataclass(frozen=True)
+class ReferenciaTempoManual:
+    """Tempo manual medido pelo time (nunca estimado pelo código)."""
+
+    medido: bool
+    horas: float | None = None
+    tarefa: str = ""
+    amostra: str = ""
+    metodo: str = ""
+    data: str = ""
 
 
 @dataclass(frozen=True)
@@ -450,6 +617,10 @@ class Indicadores:
     apontamentos_por_severidade: dict[str, int] = field(default_factory=dict)
     apontamentos_por_destinatario: dict[str, int] = field(default_factory=dict)
     apontamentos_por_tipo: dict[str, int] = field(default_factory=dict)
+    apontamentos_por_origem: dict[str, int] = field(default_factory=dict)
+    verificacao_manual: int = 0
+    licoes_total: int = 0
+    licoes_nao_explicitas: int = 0
 
 
 @dataclass(frozen=True)
@@ -471,6 +642,23 @@ class Relatorio:
     estado_elementos: dict[str, EstadoElemento] = field(default_factory=dict)  # GlobalId → estado
     avisos: tuple[str, ...] = ()
     duracoes_s: dict[str, float] = field(default_factory=dict)
+    escopo: str = "Contrato inteiro"  # nome do marco verificado
+    versao_ifc_ids: str = ""
+    sem_modelo: bool = False
+    licoes: tuple[LicaoAprendida, ...] = ()
+    verificacoes_licoes: tuple[VerificacaoLicao, ...] = ()
+    decisoes: tuple[DecisaoApontamento, ...] = ()
+    caixas: dict[str, CaixaEnvolvente] = field(default_factory=dict)  # GlobalId → caixa
+    consumo: tuple[ConsumoEtapa, ...] = ()
+    custo: Custo | None = None
+    tempo_manual: ReferenciaTempoManual | None = None
+    contexto_usado: tuple[str, ...] = ()  # documentos de referência enviados ao LLM
+
+    def decisao(self, apontamento_id: str) -> DecisaoApontamento | None:
+        for decisao in self.decisoes:
+            if decisao.apontamento_id == apontamento_id:
+                return decisao
+        return None
 
 
 # --------------------------------------------------------------------------- agregados
@@ -483,9 +671,26 @@ class Projeto:
     edital: Edital
     modelo: ModeloResumo
     topicos: tuple[Topico, ...] = ()
-    eir: Eir | None = None
+    eir: Eir | None = None  # Requisitos de Informação (RI)
     ids_gerado: bool = False
     avisos: tuple[str, ...] = ()
+    licoes: tuple[LicaoAprendida, ...] = ()
+    documentos_licoes: tuple[Edital, ...] = ()  # texto por página de cada documento de lições
+    marcos: tuple[MarcoEntrega, ...] = ()
+    ids_marco_id: str | None = None  # escopo do último IDS gerado (None = contrato inteiro)
+    ids_versao_ifc: str | None = None  # versão IFC do último IDS gerado
+
+    def marco(self, marco_id: str | None) -> MarcoEntrega | None:
+        for marco in self.marcos:
+            if marco.id == marco_id:
+                return marco
+        return None
+
+    def documento_licoes(self, arquivo: str) -> Edital | None:
+        for documento in self.documentos_licoes:
+            if documento.arquivo == arquivo:
+                return documento
+        return None
 
     def topico(self, topico_id: str) -> Topico | None:
         for topico in self.topicos:

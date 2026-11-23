@@ -46,15 +46,29 @@
   details summary { cursor: pointer; color: var(--primary); }
   footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 40px; }
   @media print { header { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  .origem { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 12px; font-weight: 700;
+            letter-spacing: .3px; border: 2px solid; white-space: nowrap; }
+  .origem-edital { color: #6a3fb5; border-color: #6a3fb5; background: #f3eefc; }
+  .origem-modelo { color: #00796b; border-color: #00796b; background: #e6f4f2; }
+  .secao-edital h2 { border-bottom-color: #6a3fb5; }
+  .secao-modelo h2 { border-bottom-color: #00796b; }
+  .apontamento.origem-borda-edital { border-right: 4px solid #6a3fb5; }
+  .apontamento.origem-borda-modelo { border-right: 4px solid #00796b; }
+  .posicionamento { background: #eef3fa; border: 1px solid #c9d6ea; border-radius: 8px; padding: 12px 16px; }
+  .decisao { background: #f6f7f9; border: 1px dashed #b8c0cc; border-radius: 6px; padding: 6px 10px; margin-top: 8px; font-size: 13px; }
+  .licoes td, .licoes th { font-size: 13px; }
+  .fonte-licoes { border-left-color: #a0522d; }
 </style>
 </head>
 <body>
 <header>
   <h1>Relatório de verificação Edital × IFC</h1>
-  <p>Edital: <b>{{ r.edital_arquivo }}</b> · Modelo: <b>{{ r.modelo_arquivo }}</b> ({{ r.schema_ifc }})</p>
-  <p>Gerado em {{ r.gerado_em | data }} · Verificação {{ r.verificacao_id }} · Modo de IA: {{ "Gemini" if r.modo_ia == "gemini" else "regras determinísticas (sem LLM)" }}</p>
+  <p>Edital: <b>{{ r.edital_arquivo }}</b> · Modelo: <b>{{ r.modelo_arquivo or "sem modelo (revisão do edital)" }}</b>{% if not r.sem_modelo %} ({{ r.schema_ifc }}){% endif %}</p>
+  <p>Escopo: <b>{{ r.escopo }}</b>{% if r.versao_ifc_ids %} · IDS em {{ r.versao_ifc_ids }}{% endif %} · Gerado em {{ r.gerado_em | data }} · Verificação {{ r.verificacao_id }} · IA: {{ "Gemini" if r.modo_ia == "gemini" else "regras determinísticas (sem LLM)" }}</p>
 </header>
 <main>
+
+<p class="posicionamento">{{ POSICIONAMENTO }}</p>
 
 {% if r.avisos %}
 <div class="avisos">
@@ -66,44 +80,50 @@
 <h2>Indicadores</h2>
 {% set i = r.indicadores %}
 <div class="cards">
+  <div class="card"><div class="valor">{{ i.apontamentos_por_origem.get("edital", 0) }}</div>
+    <div class="rotulo"><span class="origem origem-edital">EDITAL</span> apontamentos para o contratante corrigir</div></div>
+  <div class="card"><div class="valor">{{ i.apontamentos_por_origem.get("modelo", 0) }}</div>
+    <div class="rotulo"><span class="origem origem-modelo">MODELO</span> apontamentos para o contratado corrigir</div></div>
+  {% if not r.sem_modelo %}
   <div class="card"><div class="valor">{{ i.conformidade_percentual | percentual }}</div>
     <div class="rotulo">Conformidade do modelo<br>{{ i.especificacoes_aprovadas }} de {{ i.especificacoes_total }} especificações IDS aprovadas</div></div>
   <div class="card"><div class="valor">{{ i.cobertura_percentual | percentual }}</div>
     <div class="rotulo">Cobertura do edital<br>{{ i.classes_cobertas }} de {{ i.classes_especificaveis }} classes com requisito</div></div>
+  {% endif %}
   <div class="card"><div class="valor">{{ i.checklist_presentes }}/{{ i.checklist_total }}</div>
     <div class="rotulo">Itens mínimos presentes no edital<br>{{ i.checklist_parciais }} parciais</div></div>
-  <div class="card"><div class="valor">{{ i.elementos_nao_conformes }}</div>
-    <div class="rotulo">Elementos não conformes<br>de {{ i.elementos_verificados }} verificados</div></div>
-  <div class="card"><div class="valor">{{ i.requisitos_nao_verificaveis }}</div>
-    <div class="rotulo">Requisitos aprovados que exigem verificação manual</div></div>
+  {% if i.licoes_total %}
+  <div class="card"><div class="valor">{{ i.licoes_nao_explicitas }}/{{ i.licoes_total }}</div>
+    <div class="rotulo">Lições aprendidas ausentes do edital</div></div>
+  {% endif %}
+  <div class="card"><div class="valor">{{ i.verificacao_manual }}</div>
+    <div class="rotulo">Itens de verificação manual (fora do IDS)</div></div>
 </div>
 <p class="pequeno">
-  Apontamentos por severidade:
+  Apontamentos por severidade (sem a verificação manual):
   {% for s in ["alta", "media", "baixa"] %}<span class="selo {{ s }}">{{ ROTULOS_SEVERIDADE[s] }}: {{ i.apontamentos_por_severidade.get(s, 0) }}</span> {% endfor %}
-  · Por destinatário:
-  {% for d in ["projetista", "contratante"] %}<b>{{ ROTULOS_DESTINATARIO[d] }}</b>: {{ i.apontamentos_por_destinatario.get(d, 0) }} {% endfor %}
 </p>
 
-{% for destinatario, lista in grupos.items() %}
-<h2>Apontamentos para o {{ ROTULOS_DESTINATARIO[destinatario] | lower }} ({{ lista | length }})</h2>
-<p class="pequeno">{{ "Corrige o modelo IFC." if destinatario == "projetista" else "Corrige o edital." }}</p>
-{% for a in lista %}
-<div class="apontamento sev-{{ a.severidade.value }}" id="{{ a.id }}">
+{% macro cartao(a) %}
+<div class="apontamento sev-{{ a.severidade.value }} origem-borda-{{ a.origem.value }}" id="{{ a.id }}">
   <h4>{{ a.id }} · {{ a.titulo }}</h4>
   <div class="meta">
+    <span class="origem origem-{{ a.origem.value }}">{{ "EDITAL" if a.origem.value == "edital" else "MODELO" }}</span>
     <span class="selo {{ a.severidade.value }}">{{ ROTULOS_SEVERIDADE[a.severidade.value] }}</span>
     <span class="selo neutro">{{ ROTULOS_TIPO[a.tipo.value] }}</span>
     {% if a.requisito_id %}<code>{{ a.requisito_id }}</code>{% endif %}
+    {% if a.licao_id %}<code>{{ a.licao_id }}</code>{% endif %}
     {% if a.gerado_por_ia %}<span class="selo ia">Gerado por IA — revisar</span>{% endif %}
     {% if a.referencia_a_confirmar %}<span class="selo media">Referência a confirmar</span>{% endif %}
   </div>
+  <p class="pequeno">Quem age: <b>{{ ROTULOS_DESTINATARIO[a.destinatario.value] }}</b></p>
   {% for e in a.evidencias_edital %}
-  <blockquote>“{{ e.trecho }}” <span class="pequeno">(edital, p. {{ e.pagina }})</span></blockquote>
+  <blockquote{% if e.fonte.value == "licoes" %} class="fonte-licoes"{% endif %}>“{{ e.trecho }}” <span class="pequeno">({{ "lições aprendidas" if e.fonte.value == "licoes" else "edital" }}, p. {{ e.pagina }})</span></blockquote>
   {% endfor %}
   {% if a.elementos %}
   <div class="campo"><b>Onde:</b> {{ a.elementos | length }} elemento(s)
-    <details><summary>ver GlobalIds</summary>
-      <ul>{% for g in a.elementos[:200] %}<li><code>{{ g }}</code> {{ nomes.get(g, "") }}</li>{% endfor %}</ul>
+    <details><summary>ver GlobalIds e coordenadas</summary>
+      <ul>{% for g in a.elementos[:200] %}<li><code>{{ g }}</code> {{ nomes.get(g, "") }}{% if r.caixas.get(g) %}<br><span class="pequeno">{{ r.caixas.get(g) | coordenada }}</span>{% endif %}</li>{% endfor %}</ul>
     </details>
   </div>
   {% endif %}
@@ -115,12 +135,55 @@
     {% for ref in a.referencias %}{% if ref.uri %}<a href="{{ ref.uri }}" target="_blank" rel="noopener">{{ ref.rotulo }}</a>{% else %}{{ ref.rotulo }}{% endif %}{% if not loop.last %}; {% endif %}{% endfor %}
   </div>
   {% endif %}
+  {% set d = decisoes.get(a.id) %}
+  {% if d %}
+  <div class="decisao"><b>Decisão:</b> {{ ROTULOS_DECISAO[d.status.value] }}{% if d.comentario %} — {{ d.comentario }}{% endif %}{% if d.autor %} <span class="pequeno">({{ d.autor }}, {{ d.data | data }})</span>{% endif %}</div>
+  {% endif %}
 </div>
-{% else %}
-<p>Nenhum apontamento.</p>
-{% endfor %}
-{% endfor %}
+{% endmacro %}
 
+<section class="secao-edital">
+<h2><span class="origem origem-edital">EDITAL</span> Corrigir no edital — o contratante age ({{ secoes.edital | length }})</h2>
+<p class="pequeno">Ambiguidades, itens mínimos ausentes, contradições, texto repetido, lacunas de cobertura e lições aprendidas que o edital não explicita.</p>
+{% for a in secoes.edital %}{{ cartao(a) }}{% else %}<p>Nenhum apontamento.</p>{% endfor %}
+</section>
+
+{% if not r.sem_modelo %}
+<section class="secao-modelo">
+<h2><span class="origem origem-modelo">MODELO</span> Corrigir no modelo — o contratado age ({{ secoes.modelo | length }})</h2>
+<p class="pequeno">Não conformidades do IFC com os requisitos de informação (IDS) e problemas de qualidade do modelo. Use o BCF para localizar cada elemento.</p>
+{% for a in secoes.modelo %}{{ cartao(a) }}{% else %}<p>Nenhum apontamento.</p>{% endfor %}
+</section>
+{% endif %}
+
+<h2>Verificação manual ({{ manuais | length }})</h2>
+<p class="pequeno">Requisitos que o IDS não verifica (geometria, prazo, desempenho). Uma pessoa precisa conferir.</p>
+{% for a in manuais %}{{ cartao(a) }}{% else %}<p>Nenhum item.</p>{% endfor %}
+
+{% if dispensados %}
+<h2>Apontamentos dispensados ({{ dispensados | length }})</h2>
+<p class="pequeno">Dispensados por uma pessoa, com justificativa. Continuam aqui e nos indicadores (salvaguarda G2).</p>
+{% for a in dispensados %}{{ cartao(a) }}{% endfor %}
+{% endif %}
+
+{% if r.licoes %}
+<h2>Lições aprendidas ({{ r.licoes | length }})</h2>
+<p class="pequeno">Quarta entrada do ciclo PDCA. As lições só acrescentam verificações: nunca removem nem rebaixam apontamentos.</p>
+<table class="licoes">
+  <tr><th>ID</th><th>Lição</th><th>Origem</th><th>No edital?</th></tr>
+  {% for l in r.licoes %}
+  {% set v = verificacoes_licoes.get(l.id) %}
+  <tr>
+    <td><code>{{ l.id }}</code></td>
+    <td><b>{{ l.titulo }}</b><br>{{ l.regra }}</td>
+    <td class="pequeno">{{ l.documento }}, p. {{ l.evidencia.pagina }}</td>
+    <td>{% if v and v.explicita %}<span class="selo ok">Explícita</span>{% if v.evidencia %}<br><span class="pequeno">p. {{ v.evidencia.pagina }}</span>{% endif %}{% elif v %}<span class="selo alta">Ausente</span>{% else %}<span class="selo neutro">Não avaliada</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if not r.sem_modelo %}
 <h2>Conformidade por especificação IDS</h2>
 <table>
   <tr><th>Especificação</th><th>Aplicáveis</th><th>Aprovados</th><th>Falhas</th><th>Status</th></tr>
@@ -133,6 +196,7 @@
   <tr><td colspan="5">Nenhum IDS validado.</td></tr>
   {% endfor %}
 </table>
+{% endif %}
 
 {% if r.cobertura %}
 <h2>Cobertura do edital por classe IFC</h2>
@@ -160,9 +224,10 @@
   {% endfor %}
 </table>
 
-<h2>EIR aprovado ({{ r.requisitos | selectattr("aprovado") | list | length }} requisitos)</h2>
+<h2>Requisitos de informação (RI) aprovados ({{ r.requisitos | selectattr("aprovado") | list | length }})</h2>
+<p class="pequeno">O contrato de dados da contratação. Cada requisito cita o trecho do edital (ou da lição aprendida) de onde veio.</p>
 <table>
-  <tr><th>ID</th><th>Requisito</th><th>Mapeamento IFC</th><th>Origem</th><th>Edital</th></tr>
+  <tr><th>ID</th><th>Requisito</th><th>Mapeamento IFC</th><th>Vocabulário</th><th>Fonte</th></tr>
   {% for q in r.requisitos if q.aprovado %}
   <tr>
     <td><code>{{ q.id }}</code></td>
@@ -171,15 +236,54 @@
         {% if q.pset or q.propriedade %}<br><code>{{ q.pset or "" }}{{ "." if q.pset and q.propriedade else "" }}{{ q.propriedade or "" }}</code>{% endif %}
         {% if q.restricao %}<br><span class="pequeno">{{ q.restricao | restricao }}</span>{% endif %}</td>
     <td>{{ q.origem_vocabulario.value if q.origem_vocabulario else "—" }}</td>
-    <td class="pequeno">p. {{ q.evidencia.pagina }}{% if q.clausula %}, item {{ q.clausula }}{% endif %}</td>
+    <td class="pequeno">{% if q.licao_id %}Lição {{ q.licao_id }}, {% else %}Edital, {% endif %}p. {{ q.evidencia.pagina }}{% if q.clausula %}, item {{ q.clausula }}{% endif %}</td>
   </tr>
   {% endfor %}
 </table>
 
+<h2>Custo e tempo</h2>
+{% if r.consumo %}
+<table>
+  <tr><th>Etapa</th><th>Chamadas</th><th>Tokens de entrada</th><th>Tokens de saída</th><th>Tempo de IA</th></tr>
+  {% for e in r.consumo %}
+  <tr><td>{{ e.etapa }}</td><td>{{ e.chamadas }}{% if e.chamadas_cache %} (+{{ e.chamadas_cache }} do cache){% endif %}</td><td>{{ e.tokens_entrada | milhar }}</td><td>{{ e.tokens_saida | milhar }}</td><td>{{ "%.1f" | format(e.duracao_s) }} s</td></tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="pequeno">Sem chamadas de IA nesta verificação (modo de regras determinísticas).</p>
+{% endif %}
+{% if r.custo %}
+<p>Total: <b>{{ r.custo.tokens_entrada | milhar }}</b> tokens de entrada e <b>{{ r.custo.tokens_saida | milhar }}</b> de saída.
+{% if r.custo.usd is not none %}Custo estimado: <b>{{ r.custo.usd | usd }}</b> <span class="pequeno">(preços configurados: US$ {{ r.custo.preco_entrada_usd_mtok }} e US$ {{ r.custo.preco_saida_usd_mtok }} por milhão de tokens; fonte: {{ r.custo.fonte_preco or "não informada" }})</span>.
+{% else %}<span class="pequeno">Custo em dólares não calculado: configure os preços do modelo (LLM_PRECO_ENTRADA_USD_MTOK e LLM_PRECO_SAIDA_USD_MTOK).</span>{% endif %}</p>
+{% endif %}
+<p class="pequeno">Tempo das análises: {% for nome, s in r.duracoes_s.items() %}{{ nome }} {{ "%.1f" | format(s) }} s{% if not loop.last %} · {% endif %}{% endfor %}.</p>
+{% if r.tempo_manual and r.tempo_manual.medido %}
+<p>Referência manual medida pelo time: <b>{{ r.tempo_manual.horas }} h</b> para "{{ r.tempo_manual.tarefa }}" <span class="pequeno">(amostra: {{ r.tempo_manual.amostra }}; método: {{ r.tempo_manual.metodo }}; {{ r.tempo_manual.data }})</span>.</p>
+{% else %}
+<p class="pequeno">Tempo manual equivalente: <b>não medido</b>. O time registra a medição em backend/resources/referencia_tempo_manual.yaml.</p>
+{% endif %}
+
+{% if r.contexto_usado %}
+<h2>Documentos de referência usados como contexto</h2>
+<ul>{% for d in r.contexto_usado %}<li>{{ d }}</li>{% endfor %}</ul>
+<p class="pequeno">Enviados ao LLM só como dado de apoio. Requisitos e evidências vêm sempre do edital.</p>
+{% endif %}
+
+<h2>Glossário</h2>
+<table>
+  <tr><th>Termo</th><th>O que é</th><th>Referência</th></tr>
+  {% for termo, definicao, referencia in GLOSSARIO %}
+  <tr><td><b>{{ termo }}</b></td><td>{{ definicao }}</td><td class="pequeno">{{ referencia }}</td></tr>
+  {% endfor %}
+</table>
+<p class="pequeno">Versões das normas conferidas em catálogos públicos em 22/11/2026. Confirme a vigência no catálogo oficial (ISO, ABNT) antes de citar em contrato.</p>
+
 <h2>Limites desta verificação</h2>
 <ul>
   <li>O IDS verifica só informação alfanumérica do modelo. Requisitos geométricos, de desempenho, prazo ou custo aparecem como “verificação manual”.</li>
-  <li>Os requisitos foram propostos por {{ "IA (Gemini)" if r.modo_ia == "gemini" else "regras determinísticas" }} e aprovados por uma pessoa antes da geração do IDS. Toda citação do edital foi conferida literalmente contra o texto do PDF.</li>
+  <li>Os requisitos foram propostos por {{ "IA (Gemini)" if r.modo_ia == "gemini" else "regras determinísticas" }} e aprovados por uma pessoa antes da geração do IDS. Toda citação foi conferida literalmente contra o texto do documento de origem.</li>
+  <li>Lições aprendidas e documentos de referência só acrescentam verificações. Dispensar um apontamento exige justificativa, que fica registrada neste relatório.</li>
   <li>A checklist e o léxico de termos vagos são do time EditalCheck. Eles não substituem a análise jurídica do edital.</li>
 </ul>
 

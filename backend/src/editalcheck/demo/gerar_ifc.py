@@ -31,7 +31,7 @@ TIPOS_SALA_TERREO = (
     "Biblioteca",
     "Sala de aula 01",
     "Refeitório",
-    "Cozinha",
+    "Sala de baterias",  # caso real citado pela banca: não pode ter janelas
     "Sanitário feminino",
     "Sanitário masculino",
 )

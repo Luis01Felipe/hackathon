@@ -1,0 +1,10 @@
+LIÇÕES APRENDIDAS EM OBRAS ESCOLARES ANTERIORES
+Documento fictício, criado pelo time EditalCheck para demonstração no Hackathon Open BIM + IA.
+
+1. Salas de baterias e de nobreak não podem ter janelas nem iluminação natural. Na obra anterior, a exigência genérica de iluminação natural em todos os ambientes levou à instalação de janelas nessas salas, com retrabalho e custo extra.
+
+2. Todas as portas deverão conter a propriedade FireRating do Pset_DoorCommon, com a resistência ao fogo da porta. Sem essa informação no modelo, a vistoria do Corpo de Bombeiros atrasou.
+
+3. As lajes deverão informar se são estruturais na propriedade LoadBearing do Pset_SlabCommon. A fiscalização precisou dessa informação para conferir o projeto estrutural.
+
+4. A casa de bombas do reservatório deve ter acesso independente pela área externa, para a manutenção não interromper as aulas.

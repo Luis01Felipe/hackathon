@@ -6,7 +6,7 @@ from pathlib import Path
 import yaml
 
 from editalcheck.domain.checklist import RegraChecklist
-from editalcheck.domain.models import ItemChecklist, TermoVago
+from editalcheck.domain.models import ItemChecklist, ReferenciaTempoManual, TermoVago
 
 
 @dataclass(frozen=True)
@@ -70,4 +70,22 @@ def carregar_vocabulario(caminho: Path) -> VocabularioPt:
         sistemas_classificacao=tuple(dados.get("sistemas_classificacao", [])),
         obrigacao=tuple(dados.get("obrigacao", [])),
         nao_modelo=tuple(str(v) for v in dados.get("nao_modelo", [])),
+    )
+
+
+def carregar_tempo_manual(caminho: Path) -> ReferenciaTempoManual:
+    """Tempo manual medido pelo time. Sem medição registrada, o painel mostra "não medido"."""
+    if not caminho.exists():
+        return ReferenciaTempoManual(medido=False)
+    dados = _ler(caminho)
+    horas = dados.get("horas")
+    if horas in (None, ""):
+        return ReferenciaTempoManual(medido=False, tarefa=str(dados.get("tarefa") or ""))
+    return ReferenciaTempoManual(
+        medido=True,
+        horas=float(horas),
+        tarefa=str(dados.get("tarefa") or ""),
+        amostra=str(dados.get("amostra") or ""),
+        metodo=str(dados.get("metodo") or ""),
+        data=str(dados.get("data") or ""),
     )

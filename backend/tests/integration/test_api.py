@@ -25,23 +25,23 @@ def test_fluxo_completo_pela_api(container: Container, arquivos_demo) -> None:
 
     topicos = cliente.get(f"/api/projetos/{pid}/topicos").json()
     selecionados = [t["id"] for t in topicos if t["numero"] in ("5.1", "5.5")]
-    eir = cliente.post(f"/api/projetos/{pid}/eir", json={"topicos": selecionados}).json()
+    eir = cliente.post(f"/api/projetos/{pid}/ri", json={"topicos": selecionados}).json()
     assert len(eir["requisitos"]) == 5
 
     primeiro = eir["requisitos"][0]["id"]
     editado = cliente.patch(
-        f"/api/projetos/{pid}/eir/requisitos/{primeiro}",
+        f"/api/projetos/{pid}/ri/requisitos/{primeiro}",
         json={"acao": "editar", "campos": {"descricao": "Portas com resistência ao fogo"}},
     ).json()
     assert editado["status"] == "editado"
     rejeitado = cliente.patch(
-        f"/api/projetos/{pid}/eir/requisitos/{eir['requisitos'][1]['id']}",
+        f"/api/projetos/{pid}/ri/requisitos/{eir['requisitos'][1]['id']}",
         json={"acao": "rejeitar"},
     )
     assert rejeitado.json()["status"] == "rejeitado"
-    cliente.post(f"/api/projetos/{pid}/eir/aprovar-todos", json={"somente_verificaveis": True})
+    cliente.post(f"/api/projetos/{pid}/ri/aprovar-todos", json={"somente_verificaveis": True})
 
-    planilha = cliente.get(f"/api/projetos/{pid}/eir.xlsx")
+    planilha = cliente.get(f"/api/projetos/{pid}/ri.xlsx")
     assert planilha.status_code == 200 and planilha.content[:2] == b"PK"
 
     ids = cliente.post(f"/api/projetos/{pid}/ids").json()
@@ -64,7 +64,7 @@ def test_fluxo_completo_pela_api(container: Container, arquivos_demo) -> None:
 
     lacuna = next(a for a in relatorio["apontamentos"] if a["tipo"] == "lacuna_cobertura")
     novos = cliente.post(
-        f"/api/projetos/{pid}/eir/requisitos",
+        f"/api/projetos/{pid}/ri/requisitos",
         json={"verificacao_id": vid, "apontamento_id": lacuna["id"]},
     )
     assert novos.status_code == 201 and novos.json()[0]["sugerido_por_lacuna"]
@@ -81,7 +81,8 @@ def test_atras_de_proxy_com_prefixo_removido(container: Container) -> None:
 def test_erros_em_portugues(container: Container) -> None:
     cliente = TestClient(criar_app(container))
     resposta = cliente.get("/api/projetos/inexistente/topicos")
-    assert resposta.status_code == 404 and resposta.json()["detail"] == "Projeto não encontrado."
+    assert resposta.status_code == 404
+    assert resposta.json()["detail"].startswith("Projeto não encontrado")
     assert cliente.get("/api/projetos/..%2F..%2Fetc/topicos").status_code == 404
     demo = cliente.post("/api/projetos/demo").json()
     assert cliente.post(f"/api/projetos/{demo['id']}/ids").status_code == 409

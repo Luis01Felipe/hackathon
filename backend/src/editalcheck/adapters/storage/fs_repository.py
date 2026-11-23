@@ -1,11 +1,13 @@
-"""Repositório em sistema de arquivos (sem banco, conforme o escopo do hackathon).
+"""Repositório em sistema de arquivos (modo ``persistente``, para desenvolvimento).
 
-Estrutura:
+O deploy usa o modo ``efemero`` (``MemoryProjectRepository``), que não grava
+arquivos do usuário em disco. Estrutura deste modo:
     <raiz>/projetos/<id>/projeto.json, edital.pdf, modelo.ifc, ids.xml
     <raiz>/verificacoes/<vid>/verificacao.json, relatorio.json, relatorio.html, resultado.bcf
 """
 
 import re
+import shutil
 import threading
 from pathlib import Path
 
@@ -61,18 +63,33 @@ class FsProjectRepository:
         self._cache_projetos[projeto_id] = projeto
         return projeto
 
-    def file_path(self, projeto_id: str, nome: str) -> str:
-        return str(self._pasta_projeto(projeto_id) / _validar(nome, _NOME_SEGURO))
+    def delete(self, projeto_id: str) -> bool:
+        try:
+            pasta = self._pasta_projeto(projeto_id)
+        except ValueError:
+            return False
+        with self._trava:
+            self._cache_projetos.pop(projeto_id, None)
+        if not pasta.exists():
+            return False
+        for arquivo in self._verificacoes.glob("*/verificacao.json"):
+            verificacao = _VERIFICACAO.validate_json(arquivo.read_bytes())
+            if verificacao.projeto_id == projeto_id:
+                shutil.rmtree(arquivo.parent, ignore_errors=True)
+        shutil.rmtree(pasta, ignore_errors=True)
+        return True
 
-    def write_file(self, projeto_id: str, nome: str, conteudo: bytes) -> str:
-        caminho = Path(self.file_path(projeto_id, nome))
+    def _arquivo(self, projeto_id: str, nome: str) -> Path:
+        return self._pasta_projeto(projeto_id) / _validar(nome, _NOME_SEGURO)
+
+    def write_file(self, projeto_id: str, nome: str, conteudo: bytes) -> None:
+        caminho = self._arquivo(projeto_id, nome)
         caminho.parent.mkdir(parents=True, exist_ok=True)
         caminho.write_bytes(conteudo)
-        return str(caminho)
 
     def read_file(self, projeto_id: str, nome: str) -> bytes | None:
         try:
-            caminho = Path(self.file_path(projeto_id, nome))
+            caminho = self._arquivo(projeto_id, nome)
         except ValueError:
             return None
         return caminho.read_bytes() if caminho.exists() else None
@@ -98,13 +115,10 @@ class FsProjectRepository:
         with self._trava:
             return _VERIFICACAO.validate_json(arquivo.read_bytes())
 
-    def save_relatorio(self, relatorio: Relatorio, html: str, bcf: bytes | None) -> None:
+    def save_relatorio(self, relatorio: Relatorio) -> None:
         pasta = self._pasta_verificacao(relatorio.verificacao_id)
         pasta.mkdir(parents=True, exist_ok=True)
         (pasta / "relatorio.json").write_bytes(_RELATORIO.dump_json(relatorio, indent=2))
-        (pasta / "relatorio.html").write_text(html, encoding="utf-8")
-        if bcf is not None:
-            (pasta / "resultado.bcf").write_bytes(bcf)
 
     def get_relatorio(self, verificacao_id: str) -> Relatorio | None:
         try:
@@ -115,9 +129,14 @@ class FsProjectRepository:
             return None
         return _RELATORIO.validate_json(arquivo.read_bytes())
 
-    def relatorio_file(self, verificacao_id: str, nome: str) -> str | None:
+    def write_relatorio_file(self, verificacao_id: str, nome: str, conteudo: bytes) -> None:
+        pasta = self._pasta_verificacao(verificacao_id)
+        pasta.mkdir(parents=True, exist_ok=True)
+        (pasta / _validar(nome, _NOME_SEGURO)).write_bytes(conteudo)
+
+    def read_relatorio_file(self, verificacao_id: str, nome: str) -> bytes | None:
         try:
             caminho = self._pasta_verificacao(verificacao_id) / _validar(nome, _NOME_SEGURO)
         except ValueError:
             return None
-        return str(caminho) if caminho.exists() else None
+        return caminho.read_bytes() if caminho.exists() else None
