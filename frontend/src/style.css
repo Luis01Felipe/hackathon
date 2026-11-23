@@ -2419,6 +2419,15 @@ input[type="search"].campo-busca {
     grid-template-rows: minmax(360px, 1fr) auto;
   }
 
+  /* Na confirmação (tela cheia), PDF e lista dividem a altura: os dois rolam por dentro. */
+  .revisao-pdf-corpo {
+    grid-template-rows: minmax(0, 1.2fr) minmax(0, 1fr);
+  }
+
+  .revisao-pdf-corpo .revisao-pdf-visualizador {
+    min-height: 0;
+  }
+
   .aba-edital .edital-grade {
     height: auto;
   }
@@ -2444,4 +2453,213 @@ input[type="search"].campo-busca {
 
 .download-falha:empty {
   display: none;
+}
+
+/* ------------------------------------------------------------------ celular */
+
+@media (max-width: 760px) {
+  /* Campos com menos de 16px fazem o iOS dar zoom na página ao tocar neles. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  .faixa-demo {
+    font-size: 0.78rem;
+  }
+
+  /* Cabeçalho: marca numa linha, ações na de baixo. */
+  .topo {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  .marca p {
+    display: none;
+  }
+
+  .topo-acoes {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .selo-modo {
+    width: 100%;
+  }
+
+  .topo-acoes .btn {
+    padding: 6px 10px;
+  }
+
+  .conteudo {
+    padding-top: 16px;
+  }
+
+  .cabecalho-passo h2 {
+    font-size: 1.15rem;
+  }
+
+  .cartao {
+    padding: 14px;
+  }
+
+  /* Filtros: busca e selects na linha inteira (lado a lado, o texto cortaria). */
+  .barra-filtros > .campo-busca,
+  .barra-filtros select {
+    flex: 1 1 100%;
+    max-width: none;
+    min-width: 0;
+  }
+
+  .barra-filtros .espaco {
+    display: none;
+  }
+
+  .campo-inline {
+    flex-wrap: wrap;
+  }
+
+  .campo-inline select {
+    max-width: 100%;
+  }
+
+  /* Abas numa faixa que rola na horizontal, em vez de três linhas empilhadas. */
+  .abas {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .aba {
+    flex: none;
+    white-space: nowrap;
+  }
+
+  .acoes-fixas .btn {
+    flex: 1 1 auto;
+  }
+
+  /* Tabela de IR vira uma lista de cartões, um por requisito. */
+  .tabela-eir,
+  .tabela-eir tbody,
+  .tabela-eir tr,
+  .tabela-eir td {
+    display: block;
+    width: 100%;
+  }
+
+  .tabela-eir thead {
+    display: none;
+  }
+
+  .tabela-eir tr {
+    border-bottom: 1px solid var(--border-forte);
+    padding: 6px 0;
+  }
+
+  .tabela-eir td {
+    border-bottom: 0;
+    padding: 6px 12px;
+    min-width: 0;
+  }
+
+  .tabela-eir td[data-rotulo]::before {
+    content: attr(data-rotulo);
+    display: block;
+    margin-bottom: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+
+  .tabela-eir .col-id {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .tabela-eir .col-id > * {
+    margin: 0;
+  }
+
+  .tabela-eir .col-acoes {
+    position: static;
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    box-shadow: none;
+    background: transparent;
+  }
+
+  .tabela-eir .col-acoes .btn {
+    width: auto;
+    flex: 1 1 0;
+    margin: 0;
+    padding: 8px;
+  }
+
+  .tabela-eir .col-classif > div {
+    display: inline-block;
+    margin: 0 12px 4px 0;
+    vertical-align: top;
+  }
+
+  /* Confirmação dos tópicos ocupa a tela toda. */
+  .revisao-pdf {
+    padding: 0;
+  }
+
+  .revisao-pdf-caixa {
+    border-radius: 0;
+  }
+
+  .revisao-pdf-cabecalho p {
+    display: none;
+  }
+
+  .revisao-pdf-rodape {
+    flex-wrap: wrap;
+  }
+
+  .revisao-pdf-rodape .btn {
+    flex: 1 1 auto;
+    white-space: normal;
+  }
+
+  .revisao-pdf-rodape .espaco {
+    display: none;
+  }
+
+  .pdf-so-leitura {
+    display: none;
+  }
+
+  .modal-fundo {
+    padding: 8px;
+  }
+
+  .modal-cabecalho,
+  .modal-rodape,
+  .modal-corpo {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .toasts {
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .toast {
+    max-width: none;
+  }
 }

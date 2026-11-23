@@ -521,7 +521,7 @@ function linhaRequisito(
     ),
     h(
       "td",
-      { class: "col-req" },
+      { class: "col-req", "data-rotulo": "Requisito e trecho de origem" },
       h("p", { class: "req-descricao" }, req.descricao),
       h(
         "blockquote",
@@ -540,7 +540,7 @@ function linhaRequisito(
     ),
     h(
       "td",
-      { class: "col-classif" },
+      { class: "col-classif", "data-rotulo": "Tópico, ambiente e item" },
       h(
         "div",
         { class: "classif-topico", title: topico.caminho },
@@ -567,7 +567,7 @@ function linhaRequisito(
     ),
     h(
       "td",
-      { class: "col-map" },
+      { class: "col-map", "data-rotulo": "Mapeamento IFC" },
       h("code", { class: "mapa" }, mapeamento(req)),
       h(
         "div",
@@ -590,7 +590,7 @@ function linhaRequisito(
     ),
     h(
       "td",
-      { class: "col-verif" },
+      { class: "col-verif", "data-rotulo": "Verificação" },
       badge(TIPO_VERIFICACAO[verificacao], VARIANTE_VERIFICACAO[verificacao], DESCRICAO_VERIFICACAO[verificacao]),
       !req.verificavel_por_ids && req.motivo_nao_verificavel
         ? h("small", { class: "motivo" }, req.motivo_nao_verificavel)
