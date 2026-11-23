@@ -3,33 +3,22 @@ networks:
   proxy:
     external: true
 
-########################### EXTENSION FIELDS
-x-environment: &default-tz-puid-pgid
-  TZ: America/Sao_Paulo
-  PUID: 1000
-  PGID: 1000
-
-x-common-keys-proxy: &common-keys-proxy
-  networks:
-    - proxy
-  security_opt:
-    - no-new-privileges:true
-  restart: always
-
-x-common-keys-dual: &common-keys-dual
-  networks:
-    - proxy
-  security_opt:
-    - no-new-privileges:true
-  restart: unless-stopped
+########################### VOLUMES
+# Únicos dados em disco: o log de auditoria (sem conteúdo do usuário) e o cache do bSDD
+# (dados públicos). Edital, IFC, lições e relatórios ficam só na memória (modo efêmero).
+volumes:
+  auditoria:
+  bsdd:
 
 ########################### SERVICES
 # Servidor: /mnt/dados/atena/projects/hackathon/
 # Endpoint: https://atena.construtivo.com/editalcheck/
+#
+# A imagem é autocontida (código + frontend compilado). Para atualizar:
+#   git pull && docker compose build && docker compose up -d
 name: editalcheck
 services:
   app:
-    <<: *common-keys-proxy
     build:
       context: .
       dockerfile: py3_12-ifcopenshell.Dockerfile
@@ -40,29 +29,48 @@ services:
     env_file:
       - .env.deploy
     environment:
-      - PYTHONUNBUFFERED=1
-      - PYTHONPATH=/workspace/backend/src
-      - TZ=America/Sao_Paulo
-      - APP_DOMAIN=${APP_DOMAIN:-atena.construtivo.com}
+      # Definidos aqui (e não no .env.deploy) porque o deploy depende deles.
       # Prefixo removido pelo Traefik: o /docs da API usa para achar o /openapi.json.
-      - EDITALCHECK_ROOT_PATH=/editalcheck
+      EDITALCHECK_ROOT_PATH: /editalcheck
       # Modo efêmero (RNF-11): edital, IFC, lições e relatórios ficam só na RAM do contêiner.
-      # Nada do usuário vai para disco; o cache do LLM fica desligado. Uma única réplica
-      # (ou sessão fixa no proxy, já configurada abaixo) atende cada projeto.
-      - EDITALCHECK_MODO_DADOS=efemero
+      # Uma única réplica (ou a sessão fixa configurada abaixo) atende cada projeto.
+      EDITALCHECK_MODO_DADOS: efemero
+      # Documentação interativa da API (/docs) desligada em produção.
+      EDITALCHECK_DOCS: "false"
+      # Só o Traefik fala com o contêiner (rede proxy): os cabeçalhos X-Forwarded-* dele valem.
+      FORWARDED_ALLOW_IPS: "*"
+    # Endurecimento: sistema de arquivos só leitura, /tmp em memória (uploads grandes passam
+    # por ele), sem capabilities do Linux e sem escalada de privilégio.
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     volumes:
-      # Código do repositório. No modo efêmero, o disco recebe só o log de auditoria sem
-      # conteúdo (./var/auditoria) e o cache do bSDD (dados públicos, ./.cache/bsdd).
-      - ".:/workspace:rw"
-    working_dir: /workspace
-    command: [ "python", "-m", "editalcheck.entrypoints.cli", "servidor", "--host", "0.0.0.0", "--porta", "8000" ]
+      - auditoria:/app/var/auditoria
+      - bsdd:/app/.cache/bsdd
+    deploy:
+      resources:
+        limits:
+          cpus: "${EDITALCHECK_CPUS:-4}"
+          memory: "${EDITALCHECK_MEMORIA:-6g}"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks:
+      - proxy
+    restart: unless-stopped
     labels:
       - "traefik.enable=true"
 
       # Força o Traefik a se comunicar pela rede correta
       - "traefik.docker.network=proxy"
 
-      # Roteador Principal (frontend, API e /docs sob /editalcheck)
+      # Roteador Principal (frontend e API sob /editalcheck)
       - "traefik.http.routers.editalcheck.entrypoints=http,https"
       - "traefik.http.routers.editalcheck.rule=Host(`${APP_DOMAIN:-atena.construtivo.com}`) && PathPrefix(`/editalcheck`)"
       - "traefik.http.routers.editalcheck.tls=true"
@@ -75,10 +83,9 @@ services:
       # Define a Porta do Traefik + Loadbalancer
       - "traefik.http.services.editalcheck-app.loadbalancer.server.port=8000"
 
-      # Sticky Session
+      # Sessão fixa: o projeto fica na memória de uma réplica só
       - "traefik.http.services.editalcheck-app.loadbalancer.sticky.cookie=true"
       - "traefik.http.services.editalcheck-app.loadbalancer.sticky.cookie.name=editalcheck_session"
       - "traefik.http.services.editalcheck-app.loadbalancer.sticky.cookie.httpOnly=true"
-    networks:
-      - proxy
-    restart: unless-stopped
+      - "traefik.http.services.editalcheck-app.loadbalancer.sticky.cookie.secure=true"
+      - "traefik.http.services.editalcheck-app.loadbalancer.sticky.cookie.sameSite=lax"
