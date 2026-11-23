@@ -67,19 +67,48 @@ def _palavras(pagina: pymupdf.Page) -> list[_Palavra]:
     return palavras
 
 
-def _procurar(sequencia: list[str], palavras: list[_Palavra]) -> list[_Palavra]:
+@dataclass
+class PaginaIndexada:
+    """Palavras de uma página e o índice de posições por palavra (lido uma vez só)."""
+
+    palavras: list[_Palavra]
+    tokens: list[str]
+    posicoes: dict[str, list[int]]
+
+    @staticmethod
+    def de(pagina: pymupdf.Page) -> "PaginaIndexada":
+        palavras = _palavras(pagina)
+        tokens_pagina = [p.token for p in palavras]
+        posicoes: dict[str, list[int]] = {}
+        for indice, token in enumerate(tokens_pagina):
+            posicoes.setdefault(token, []).append(indice)
+        return PaginaIndexada(palavras, tokens_pagina, posicoes)
+
+
+class PaginasIndexadas:
+    """Cache das páginas indexadas de um documento."""
+
+    def __init__(self) -> None:
+        self._paginas: dict[int, PaginaIndexada] = {}
+
+    def de(self, pagina: pymupdf.Page) -> PaginaIndexada:
+        if pagina.number not in self._paginas:
+            self._paginas[pagina.number] = PaginaIndexada.de(pagina)
+        return self._paginas[pagina.number]
+
+
+def _procurar(sequencia: list[str], pagina: PaginaIndexada) -> list[_Palavra]:
     """Acha a sequência; se não achar inteira, o maior prefixo com ao menos 6 palavras."""
     if not sequencia:
         return []
-    tokens_pagina = [p.token for p in palavras]
+    palavras, tokens_pagina = pagina.palavras, pagina.tokens
     tamanho = len(sequencia)
-    for inicio in range(len(tokens_pagina) - tamanho + 1):
+    inicios = pagina.posicoes.get(sequencia[0], [])
+    for inicio in inicios:
         if tokens_pagina[inicio : inicio + tamanho] == sequencia:
             return palavras[inicio : inicio + tamanho]
     melhor: list[_Palavra] = []
-    for inicio, token in enumerate(tokens_pagina):
-        if token != sequencia[0]:
-            continue
+    for inicio in inicios:
         fim = inicio
         while (
             fim < len(tokens_pagina)
@@ -101,9 +130,11 @@ def _por_linha(palavras: list[_Palavra]) -> list[pymupdf.Rect]:
     return list(linhas.values())
 
 
-def retangulos_do_trecho(pagina: pymupdf.Page, trecho: str) -> list[pymupdf.Rect]:
+def retangulos_do_trecho(
+    pagina: pymupdf.Page, trecho: str, indexada: PaginaIndexada | None = None
+) -> list[pymupdf.Rect]:
     """Retângulos (um por linha) do trecho na página, em coordenadas do PyMuPDF."""
-    return _por_linha(_procurar(tokens(trecho), _palavras(pagina)))
+    return _por_linha(_procurar(tokens(trecho), indexada or PaginaIndexada.de(pagina)))
 
 
 def _normalizar(pagina: pymupdf.Page, rect: pymupdf.Rect) -> RegiaoPdf:
@@ -121,23 +152,23 @@ def _normalizar(pagina: pymupdf.Page, rect: pymupdf.Rect) -> RegiaoPdf:
 
 class PyMuPdfLocalizador:
     def __init__(self) -> None:
-        self._cache: OrderedDict[str, pymupdf.Document] = OrderedDict()
+        self._cache: OrderedDict[str, tuple[pymupdf.Document, PaginasIndexadas]] = OrderedDict()
         self._trava = Lock()
 
-    def _documento(self, pdf: bytes) -> pymupdf.Document:
+    def _documento(self, pdf: bytes) -> tuple[pymupdf.Document, PaginasIndexadas]:
         chave = hashlib.sha256(pdf).hexdigest()
         with self._trava:
             if chave in self._cache:
                 self._cache.move_to_end(chave)
                 return self._cache[chave]
             documento = pymupdf.open(stream=pdf, filetype="pdf")
-            self._cache[chave] = documento
+            self._cache[chave] = (documento, PaginasIndexadas())
             while len(self._cache) > MAX_DOCUMENTOS_EM_CACHE:
-                self._cache.popitem(last=False)[1].close()
-            return documento
+                self._cache.popitem(last=False)[1][0].close()
+            return self._cache[chave]
 
     def trechos(self, pdf: bytes, evidencias: Sequence[Evidencia]) -> list[list[RegiaoPdf]]:
-        documento = self._documento(pdf)
+        documento, indexadas = self._documento(pdf)
         with self._trava:
             resultado: list[list[RegiaoPdf]] = []
             for evidencia in evidencias:
@@ -148,19 +179,19 @@ class PyMuPdfLocalizador:
                     resultado.append([])
                     continue
                 pagina = documento[evidencia.pagina - 1]
-                retangulos = retangulos_do_trecho(pagina, evidencia.trecho)
+                retangulos = retangulos_do_trecho(pagina, evidencia.trecho, indexadas.de(pagina))
                 resultado.append([_normalizar(pagina, r) for r in retangulos])
             return resultado
 
     def topicos(self, pdf: bytes, topicos: Sequence[Topico]) -> dict[str, list[RegiaoPdf]]:
-        documento = self._documento(pdf)
+        documento, indexadas = self._documento(pdf)
         with self._trava:
-            inicios = [self._inicio(documento, t) for t in topicos]
+            inicios = [self._inicio(documento, indexadas, t) for t in topicos]
             faixas: dict[str, list[RegiaoPdf]] = {}
             for indice, topico in enumerate(topicos):
                 inicio = inicios[indice]
                 fim = next((i for i in inicios[indice + 1 :] if i is not None), None)
-                faixas[topico.id] = self._faixas(documento, topico, inicio, fim)
+                faixas[topico.id] = self._faixas(documento, indexadas, topico, inicio, fim)
             return faixas
 
     @staticmethod
@@ -171,13 +202,15 @@ class PyMuPdfLocalizador:
                 return limpa
         return f"{topico.numero} {topico.titulo}"
 
-    def _inicio(self, documento: pymupdf.Document, topico: Topico) -> tuple[int, float] | None:
+    def _inicio(
+        self, documento: pymupdf.Document, indexadas: PaginasIndexadas, topico: Topico
+    ) -> tuple[int, float] | None:
         """(índice da página, y do topo) da primeira linha do tópico."""
         if not 1 <= topico.pagina_inicio <= documento.page_count:
             return None
         pagina = documento[topico.pagina_inicio - 1]
         sequencia = tokens(self._primeira_linha(topico))[:12]
-        achadas = _procurar(sequencia, _palavras(pagina))
+        achadas = _procurar(sequencia, indexadas.de(pagina))
         if not achadas:
             return None
         return pagina.number, min(p.rect.y0 for p in achadas)
@@ -185,6 +218,7 @@ class PyMuPdfLocalizador:
     def _faixas(
         self,
         documento: pymupdf.Document,
+        indexadas: PaginasIndexadas,
         topico: Topico,
         inicio: tuple[int, float] | None,
         fim: tuple[int, float] | None,
@@ -199,7 +233,7 @@ class PyMuPdfLocalizador:
             altura = pagina.rect.height
             palavras = [
                 p
-                for p in _palavras(pagina)
+                for p in indexadas.de(pagina).palavras
                 if ZONA_CABECALHO * altura < p.rect.y0 < ZONA_RODAPE * altura
             ]
             if not palavras:

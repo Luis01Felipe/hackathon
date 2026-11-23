@@ -113,3 +113,43 @@ Tentativas que falharam e como resolvemos:
 - As faixas dos tópicos incluíam o rodapé. Cabeçalho e rodapé (6% e 7% da altura) ficam fora da faixa.
 - Na etiqueta de margem do PDF, a nota sobrescrevia o texto da etiqueta. A etiqueta agora só traz o código do apontamento.
 
+
+### Primeiro teste no servidor com um edital real (23/11/2026)
+
+Sintomas relatados: o modelo 3D não apareceu, o download do edital anotado não funcionou e a aba "Edital com os ajustes" ficou em branco. O relatório tinha 2.237 apontamentos do edital (2.181 de severidade média).
+
+Causas encontradas:
+
+- **Explosão de duplicidades e contradições.** Tabelas e listas repetem o mesmo texto trocando só o número (itens de planilha, prazos por etapa). Rodapés com "página N de M" também viravam pares. Cada linha formava par com todas as outras.
+- **Localização lenta.** O localizador relia as palavras da página a cada trecho. Com milhares de evidências, a rota de regiões e o PDF anotado levavam minutos.
+- **PDF anotado gigante.** Cada bloco do sumário embutia a fonte de novo: 1.000 apontamentos geravam 133 MB em 43 s.
+- **Tela dependente da rota lenta.** A aba Edital só abria o PDF depois de receber as regiões. O download era um link comum: falhas e demoras não apareciam para o usuário.
+
+Correções:
+
+- **Duplicidades:**
+  - números mascarados na comparação;
+  - texto repetido em 3 ou mais páginas tratado como cabeçalho ou rodapé;
+  - padrões de lista ou tabela (3 ou mais repetições) descartados;
+  - cada frase entra em um par só, com limite de 20 pares, os mais fortes.
+- **Localização:** índice de palavras por página, com cache por documento. 5.000 trechos são localizados em 2,2 s.
+- **PDF anotado:**
+  - o sumário é diagramado de uma vez com `pymupdf.Story`, com links externos nativos e só endereços `http(s)`;
+  - o resultado fica em cache até mudar uma decisão.
+  - Com 1.000 apontamentos: de 43 s e 133 MB para 5,3 s e 3,6 MB.
+- **Aba Edital:** o PDF e as regiões carregam em paralelo. Se as regiões falharem, o PDF e a lista continuam na tela, com aviso.
+- **Downloads:** um botão mostra "Gerando o arquivo…" e exibe o erro, se houver.
+- **3D:**
+  - checagem de WebGL 2 antes de criar a cena;
+  - aviso quando o navegador derruba o contexto WebGL;
+  - vigia de 3 minutos sem avanço na conversão;
+  - botão "Tentar de novo" no plano B;
+  - se só a coloração falhar, o modelo continua na tela.
+
+Teste ponta a ponta sob o prefixo `/editalcheck/` (simulando o Traefik):
+
+- confirmação dos tópicos, 3D, aba Edital, os dois PDFs e o XLSX passam, sem erros de console ou de rede;
+- um IFC4X3_ADD2 georreferenciado também renderiza;
+- com WebGL desligado, o plano B aparece com a explicação.
+
+O 3D do modelo do servidor não foi reproduzido localmente. Se falhar de novo, precisamos do erro do console do navegador (F12) e do tamanho do arquivo IFC.

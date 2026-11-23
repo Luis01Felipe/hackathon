@@ -1,5 +1,5 @@
 // Passo 6 — Resultados: painel, visualizador 3D, apontamentos por origem, decisões e detalhe.
-import { api, urls } from "../api";
+import { api, baixarArquivo, urls } from "../api";
 import {
   ANALISE,
   DECISAO,
@@ -35,6 +35,7 @@ import {
   avisos,
   badge,
   botao,
+  botaoDownload,
   carregando,
   dataHora,
   h,
@@ -111,6 +112,8 @@ function seloOrigem(apt: Apontamento): HTMLElement {
   );
 }
 const ORDEM_SEVERIDADE: Record<string, number> = { alta: 0, media: 1, baixa: 2 };
+/** Tempo máximo da conversão do IFC sem nenhum avanço antes de mostrar o plano B. */
+const LIMITE_SEM_AVANCO_MS = 3 * 60 * 1000;
 const VARIANTE_SEVERIDADE: Record<string, string> = { alta: "alta", media: "media", baixa: "baixa" };
 const VARIANTE_CHECKLIST: Record<string, string> = { presente: "sucesso", parcial: "media", ausente: "alta" };
 
@@ -408,6 +411,7 @@ export function renderResultados(ctx: Ctx): HTMLElement {
 
   const planoB = (motivo: string) => {
     limpar(overlay);
+    if (!overlay.isConnected) blocoViewer.querySelector(".viewer-area")?.append(overlay);
     overlay.classList.add("viewer-falha");
     overlay.append(
       h(
@@ -425,12 +429,44 @@ export function renderResultados(ctx: Ctx): HTMLElement {
           { class: "acoes" },
           linkDownload("Relatório HTML", urls.relatorioHtml(vid)),
           linkDownload("BCF dos apontamentos do modelo", urls.bcf(vid)),
+          botao("Tentar de novo", () => reiniciarViewer(), "fantasma"),
         ),
       ),
     );
   };
 
+  const reiniciarViewer = () => {
+    viewer?.dispose();
+    viewer = null;
+    limpar(canvasHost);
+    limpar(overlay);
+    overlay.classList.remove("viewer-falha");
+    overlay.append(carregando("Preparando o visualizador 3D…"));
+    void iniciarViewer();
+  };
+
   const iniciarViewer = async () => {
+    let ultimoAvanco = performance.now();
+    let falhou = false;
+    const falhar = (motivo: string) => {
+      if (falhou || minhaGeracao !== geracao) return;
+      falhou = true;
+      planoB(motivo);
+    };
+    // Vigia: a conversão roda no navegador e pode travar sem erro (modelo grande demais).
+    const vigia = window.setInterval(() => {
+      if (minhaGeracao !== geracao) {
+        window.clearInterval(vigia);
+        return;
+      }
+      if (performance.now() - ultimoAvanco > LIMITE_SEM_AVANCO_MS) {
+        window.clearInterval(vigia);
+        falhar(
+          `A conversão do IFC ficou mais de ${LIMITE_SEM_AVANCO_MS / 60000} minutos sem avançar. ` +
+            "O modelo pode ser grande demais para este computador.",
+        );
+      }
+    }, 5000);
     try {
       const v = await Viewer3D.criar(canvasHost);
       if (minhaGeracao !== geracao) {
@@ -438,6 +474,7 @@ export function renderResultados(ctx: Ctx): HTMLElement {
         return;
       }
       viewer = v;
+      v.onFalha = (motivo) => falhar(motivo);
       v.onPick = (escolha) => {
         if (!escolha) return;
         if (!escolha.globalId) {
@@ -450,18 +487,29 @@ export function renderResultados(ctx: Ctx): HTMLElement {
       limpar(overlay);
       overlay.append(carregando("Convertendo o IFC no navegador…"));
       await v.carregarIfc(estado.ifcLocal ?? urls.modeloIfc(projetoId), (p) => {
+        ultimoAvanco = performance.now();
         const fracao = p > 1 ? p / 100 : p;
         overlay.querySelector(".carregando")?.replaceWith(
           carregando(`Convertendo o IFC no navegador… ${Math.round(fracao * 100)}%`),
         );
       });
-      if (minhaGeracao !== geracao) return;
-      await v.mapearElementos([...indices.elementos.values()].map((e) => ({ global_id: e.global_id, step_id: e.step_id })));
-      await v.aplicarEstados(relatorio.estado_elementos);
+      window.clearInterval(vigia);
+      if (minhaGeracao !== geracao || falhou) return;
       overlay.remove();
+      try {
+        await v.mapearElementos([...indices.elementos.values()].map((e) => ({ global_id: e.global_id, step_id: e.step_id })));
+        await v.aplicarEstados(relatorio.estado_elementos);
+      } catch (e) {
+        // O modelo já aparece; só as cores por situação ficaram de fora.
+        console.error("EditalCheck: falha ao colorir o modelo", e);
+        blocoViewer.querySelector(".viewer-area")?.append(
+          h("div", { class: "viewer-aviso" }, `Modelo carregado sem as cores de conformidade: ${mensagemErro(e)}`),
+        );
+      }
     } catch (e) {
-      if (minhaGeracao !== geracao) return;
-      planoB(mensagemErro(e));
+      window.clearInterval(vigia);
+      console.error("EditalCheck: falha no visualizador 3D", e);
+      falhar(mensagemErro(e));
     }
   };
   // As duas visões ficam montadas e só alternam a visibilidade: o modelo 3D não é
@@ -586,8 +634,12 @@ function cabecalhoResultados(relatorio: Relatorio): HTMLElement {
         "div",
         { class: "downloads" },
         h("a", { class: "btn btn-primario", href: urls.relatorioHtml(vid), target: "_blank", rel: "noopener" }, "Relatório HTML"),
-        linkDownload("Edital anotado (PDF)", urls.editalAnotado(vid)),
-        linkDownload("Esclarecimentos (.xlsx)", urls.esclarecimentos(vid)),
+        botaoDownload("Edital anotado (PDF)", () => baixarArquivo(urls.editalAnotado(vid)), "edital-anotado.pdf"),
+        botaoDownload(
+          "Esclarecimentos (.xlsx)",
+          () => baixarArquivo(urls.esclarecimentos(vid)),
+          "esclarecimentos.xlsx",
+        ),
         relatorio.sem_modelo ? null : linkDownload("BCF", urls.bcf(vid)),
         relatorio.sem_modelo ? null : linkDownload("IDS", urls.idsXml(projetoId)),
         linkDownload("RI (.xlsx)", urls.riXlsx(projetoId)),

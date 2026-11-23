@@ -169,3 +169,54 @@ def test_texto_repetido_e_valores_diferentes() -> None:
     assert len(pares) == 1 and pares[0].valores_diferentes
     [apontamento] = findings.de_duplicidades(pares)
     assert apontamento.tipo == TipoApontamento.CONTRADICAO
+
+
+def test_tabela_e_lista_nao_viram_contradicao() -> None:
+    """Linhas de planilha e prazos por etapa repetem o texto trocando só o número."""
+
+    def topico(id_: str, texto: str) -> Topico:
+        return Topico(id_, id_, id_, 2, 1, 1, f"[p. 1]\n{texto}")
+
+    linhas = [
+        f"O item {i} da planilha orçamentária deverá ser entregue em {i + 5} dias corridos."
+        for i in range(1, 30)
+    ]
+    topicos = [topico(f"T{i}", linha) for i, linha in enumerate(linhas)]
+    assert duplicidade.encontrar(topicos) == []
+
+
+def test_duplicidades_limitadas_e_cada_frase_em_um_par() -> None:
+    def topico(id_: str, texto: str) -> Topico:
+        return Topico(id_, id_, id_, 2, 1, 1, f"[p. 1]\n{texto}")
+
+    temas = [
+        "pé-direito mínimo das salas de aula",
+        "largura livre das portas de saída de emergência",
+        "espessura mínima das lajes de cobertura",
+        "resistência ao fogo das paredes corta-fogo",
+        "altura dos guarda-corpos das escadas",
+        "área mínima dos sanitários acessíveis",
+        "iluminância média das salas administrativas",
+        "vazão mínima dos chuveiros automáticos",
+        "nível de ruído máximo das casas de máquinas",
+        "inclinação máxima das rampas acessíveis",
+        "distância máxima a percorrer até a saída",
+        "taxa de renovação de ar das salas técnicas",
+        "carga acidental das áreas de arquivo",
+        "espessura do revestimento das fachadas ventiladas",
+        "dimensão mínima das vagas de estacionamento",
+        "largura mínima dos corredores de circulação",
+        "altura livre sob as vigas de transição",
+        "temperatura de conforto das salas de reunião",
+        "potência instalada dos quadros de distribuição",
+        "capacidade do reservatório de água potável",
+        "cobrimento mínimo das armaduras de fundação",
+        "tempo de autonomia da iluminação de emergência",
+    ]
+    topicos = []
+    for i, tema in enumerate(temas):
+        frase = f"O valor exigido para a {tema} do edifício principal deverá ser de {i + 2},5 m."
+        topicos += [topico(f"A{i}", frase), topico(f"B{i}", frase)]
+    pares = duplicidade.encontrar(topicos)
+    assert len(pares) == duplicidade.MAX_PARES
+    assert all(par.similaridade >= duplicidade.LIMITE_DUPLICIDADE for par in pares)

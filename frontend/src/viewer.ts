@@ -29,8 +29,21 @@ export interface EscolhaElemento {
   localId: number;
 }
 
+/** Falha antes de criar o mundo 3D: sem WebGL 2 o three.js não desenha nada. */
+function exigirWebGl2(): void {
+  const teste = document.createElement("canvas").getContext("webgl2");
+  if (!teste) {
+    throw new Error(
+      "Este navegador ou computador não oferece WebGL 2 (aceleração 3D desligada ou bloqueada pela política da empresa).",
+    );
+  }
+  teste.getExtension("WEBGL_lose_context")?.loseContext();
+}
+
 export class Viewer3D {
   onPick: ((escolha: EscolhaElemento | null) => void) | null = null;
+  /** Avisa quando o navegador derruba o contexto WebGL (pouca memória de vídeo, por exemplo). */
+  onFalha: ((motivo: string) => void) | null = null;
 
   private model: FRAGS.FragmentsModel | null = null;
   private readonly guidParaLocal = new Map<string, number>();
@@ -51,6 +64,7 @@ export class Viewer3D {
   ) {}
 
   static async criar(container: HTMLElement): Promise<Viewer3D> {
+    exigirWebGl2();
     const components = new OBC.Components();
     const worlds = components.get(OBC.Worlds);
     const world = worlds.create<OBC.SimpleScene, OBC.OrthoPerspectiveCamera, OBC.SimpleRenderer>();
@@ -83,6 +97,13 @@ export class Viewer3D {
 
     const viewer = new Viewer3D(components, world, fragments);
     viewer.ligarCliques();
+    world.renderer.three.domElement.addEventListener("webglcontextlost", (evento) => {
+      evento.preventDefault();
+      if (viewer.descartado) return;
+      viewer.onFalha?.(
+        "O navegador desligou a aceleração 3D no meio do caminho (memória de vídeo insuficiente para o modelo ou driver instável).",
+      );
+    });
     return viewer;
   }
 
@@ -200,6 +221,7 @@ export class Viewer3D {
   dispose(): void {
     this.descartado = true;
     this.onPick = null;
+    this.onFalha = null;
     this.components.dispose();
   }
 
