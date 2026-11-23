@@ -6,9 +6,12 @@ documentação, para compatibilidade.
 """
 
 import mimetypes
+import re
+import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
@@ -52,9 +55,23 @@ async def _ler_limitado(arquivo: UploadFile, limite_mb: int) -> bytes:
     return b"".join(partes)
 
 
+def content_disposition(modo: str, nome: str) -> str:
+    """Cabeçalho Content-Disposition seguro para qualquer nome de arquivo (RFC 6266 e 5987).
+
+    Cabeçalhos HTTP só aceitam latin-1: nomes com "—", emoji ou aspas derrubavam a rota
+    com UnicodeEncodeError. Vai um nome ASCII de reserva e o nome real em ``filename*``.
+    """
+    limpo = re.sub(r'[\x00-\x1f\x7f"\\]', "_", nome).strip() or "arquivo"
+    ascii_ = unicodedata.normalize("NFKD", limpo).encode("ascii", "ignore").decode("ascii")
+    reserva = re.sub(r"[^A-Za-z0-9._ ()-]", "_", ascii_).strip() or "arquivo"
+    return f"{modo}; filename=\"{reserva}\"; filename*=UTF-8''{quote(limpo, safe='')}"
+
+
 def _anexo(conteudo: bytes, tipo: str, nome: str) -> Response:
     return Response(
-        conteudo, media_type=tipo, headers={"Content-Disposition": f'attachment; filename="{nome}"'}
+        conteudo,
+        media_type=tipo,
+        headers={"Content-Disposition": content_disposition("attachment", nome)},
     )
 
 
@@ -185,7 +202,7 @@ def criar_app(container: Container | None = None) -> FastAPI:
         return Response(
             conteudo,
             media_type="application/pdf",
-            headers={"Content-Disposition": f'inline; filename="{projeto.edital.arquivo}"'},
+            headers={"Content-Disposition": content_disposition("inline", projeto.edital.arquivo)},
         )
 
     @app.get("/api/projetos/{projeto_id}/topicos/regioes")

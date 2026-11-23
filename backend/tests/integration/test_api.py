@@ -186,3 +186,28 @@ def test_tipo_de_verificacao_decide_se_entra_no_ids(container: Container, arquiv
 
     invalido = cliente.patch(url, json={"acao": "editar", "campos": {"item_checagem": "XPTO"}})
     assert invalido.status_code in (400, 422)
+
+
+def test_nomes_de_arquivo_fora_do_latin1_nao_derrubam_os_downloads(
+    container: Container, arquivos_demo
+) -> None:
+    """Edital "Vol. II — Linha 6" derrubava /edital.pdf com UnicodeEncodeError no cabeçalho."""
+    cliente = TestClient(criar_app(container))
+    edital, modelo = arquivos_demo
+    pid = cliente.post(
+        "/api/projetos",
+        files={
+            "edital": ("Edital Vol. II — Linha 6 “Laranja”.pdf", edital, "application/pdf"),
+            "modelo": ("Modelo — estação ✓.ifc", modelo, "application/x-step"),
+        },
+    ).json()["id"]
+
+    pdf = cliente.get(f"/api/projetos/{pid}/edital.pdf")
+    assert pdf.status_code == 200 and pdf.content[:4] == b"%PDF"
+    disposicao = pdf.headers["content-disposition"]
+    assert disposicao.startswith("inline; filename=")
+    assert "filename*=UTF-8''Edital%20Vol.%20II%20%E2%80%94%20Linha%206" in disposicao
+
+    ifc = cliente.get(f"/api/projetos/{pid}/modelo.ifc")
+    assert ifc.status_code == 200
+    assert "%E2%9C%93.ifc" in ifc.headers["content-disposition"]
