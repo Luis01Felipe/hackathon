@@ -64,6 +64,42 @@ export function linkDownload(texto: string, href: string, variante = "secundario
   return h("a", { class: `btn btn-${variante}`, href, download: "", target: "_blank", rel: "noopener" }, texto);
 }
 
+/**
+ * Botão de download com retorno visível: mostra "Gerando…" enquanto o servidor monta o
+ * arquivo e exibe o erro, se houver (um link comum falharia em silêncio).
+ */
+export function botaoDownload(
+  texto: string,
+  baixar: () => Promise<{ blob: Blob; nome: string | null }>,
+  nomePadrao: string,
+  variante = "secundario",
+): HTMLSpanElement {
+  const falha = h("small", { class: "download-falha", role: "alert" });
+  const botaoBaixar = h("button", { type: "button", class: `btn btn-${variante}` }, texto);
+  botaoBaixar.addEventListener("click", async () => {
+    if (botaoBaixar.disabled) return;
+    botaoBaixar.disabled = true;
+    botaoBaixar.textContent = "Gerando o arquivo…";
+    falha.textContent = "";
+    try {
+      const { blob, nome } = await baixar();
+      const endereco = URL.createObjectURL(blob);
+      const ancora = h("a", { href: endereco, download: nome ?? nomePadrao, hidden: true });
+      document.body.append(ancora);
+      ancora.click();
+      ancora.remove();
+      window.setTimeout(() => URL.revokeObjectURL(endereco), 60_000);
+    } catch (e) {
+      console.error("EditalCheck: falha no download", e);
+      falha.textContent = `Não foi possível gerar o arquivo: ${mensagemErro(e)}`;
+    } finally {
+      botaoBaixar.disabled = false;
+      botaoBaixar.textContent = texto;
+    }
+  });
+  return h("span", { class: "botao-download" }, botaoBaixar, falha);
+}
+
 export function carregando(texto: string): HTMLDivElement {
   return h("div", { class: "carregando", role: "status" }, h("span", { class: "spinner" }), texto);
 }

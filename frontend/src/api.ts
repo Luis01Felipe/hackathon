@@ -84,6 +84,32 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   return (await response.json()) as T;
 }
 
+/** Nome do arquivo no cabeçalho Content-Disposition, se houver. */
+function nomeDoAnexo(disposicao: string | null): string | null {
+  if (!disposicao) return null;
+  const codificado = /filename\*=UTF-8''([^;]+)/i.exec(disposicao)?.[1];
+  if (codificado) {
+    try {
+      return decodeURIComponent(codificado);
+    } catch {
+      return null;
+    }
+  }
+  return /filename="?([^";]+)"?/i.exec(disposicao)?.[1] ?? null;
+}
+
+/** Baixa um arquivo gerado no servidor (URL de `urls`, já com o caminho base). */
+export async function baixarArquivo(url: string): Promise<{ blob: Blob; nome: string | null }> {
+  let response: Response;
+  try {
+    response = await fetch(url);
+  } catch {
+    throw new ApiError("Não foi possível conectar ao servidor do EditalCheck.", 0);
+  }
+  if (!response.ok) throw await extrairErro(response);
+  return { blob: await response.blob(), nome: nomeDoAnexo(response.headers.get("Content-Disposition")) };
+}
+
 const enc = encodeURIComponent;
 
 export const api = {

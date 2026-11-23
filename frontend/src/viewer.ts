@@ -1,12 +1,21 @@
 // Visualizador 3D com @thatopen/components v3 (MIT).
 // O IFC é convertido em fragments no navegador. O wasm do web-ifc e o worker de
 // fragments são servidos localmente (public/wasm e public/fragments).
+//
+// Perda de contexto WebGL: o navegador pode derrubar a aceleração 3D a qualquer
+// momento (pouca memória de vídeo, troca de GPU, driver reiniciado). A restauração
+// do próprio SimpleRenderer deixa a tela em branco nos testes, então a tela recria o
+// visualizador num canvas novo a partir dos fragments já convertidos (sem converter
+// o IFC de novo).
 import * as OBC from "@thatopen/components";
 import * as FRAGS from "@thatopen/fragments";
 import * as THREE from "three";
 import type { EstadoElemento, EstadoElementoItem } from "./types";
 
 type Mundo = OBC.SimpleWorld<OBC.SimpleScene, OBC.OrthoPerspectiveCamera, OBC.SimpleRenderer>;
+
+/** Limite da densidade de pixels: telas 4K com escala 200% quadruplicam a memória de vídeo. */
+const PIXEL_RATIO_MAXIMO = 1.5;
 
 const CORES = {
   conforme: new THREE.Color("#2e9e4f"),
@@ -29,8 +38,21 @@ export interface EscolhaElemento {
   localId: number;
 }
 
+/** Falha antes de criar o mundo 3D: sem WebGL 2 o three.js não desenha nada. */
+function exigirWebGl2(): void {
+  const teste = document.createElement("canvas").getContext("webgl2");
+  if (!teste) {
+    throw new Error(
+      "Este navegador ou computador não oferece WebGL 2 (aceleração 3D desligada ou bloqueada pela política da empresa).",
+    );
+  }
+  teste.getExtension("WEBGL_lose_context")?.loseContext();
+}
+
 export class Viewer3D {
   onPick: ((escolha: EscolhaElemento | null) => void) | null = null;
+  /** O navegador derrubou o contexto WebGL; a tela recria o visualizador. */
+  onContextoPerdido: (() => void) | null = null;
 
   private model: FRAGS.FragmentsModel | null = null;
   private readonly guidParaLocal = new Map<string, number>();
@@ -43,6 +65,7 @@ export class Viewer3D {
   private isolado = false;
   private inicioToque = { x: 0, y: 0 };
   private descartado = false;
+  private contexto = true;
 
   private constructor(
     private readonly components: OBC.Components,
@@ -51,6 +74,7 @@ export class Viewer3D {
   ) {}
 
   static async criar(container: HTMLElement): Promise<Viewer3D> {
+    exigirWebGl2();
     const components = new OBC.Components();
     const worlds = components.get(OBC.Worlds);
     const world = worlds.create<OBC.SimpleScene, OBC.OrthoPerspectiveCamera, OBC.SimpleRenderer>();
@@ -58,6 +82,8 @@ export class Viewer3D {
     world.scene.setup();
     world.scene.three.background = new THREE.Color("#eef1f5");
     world.renderer = new OBC.SimpleRenderer(components, container);
+    world.renderer.three.setPixelRatio(Math.min(window.devicePixelRatio || 1, PIXEL_RATIO_MAXIMO));
+    world.renderer.resize(undefined);
     world.camera = new OBC.OrthoPerspectiveCamera(components);
     await world.camera.controls.setLookAt(40, 30, 40, 0, 0, 0);
     components.init();
@@ -83,7 +109,46 @@ export class Viewer3D {
 
     const viewer = new Viewer3D(components, world, fragments);
     viewer.ligarCliques();
+    world.renderer.three.domElement.addEventListener("webglcontextlost", () => viewer.aoPerderContexto());
     return viewer;
+  }
+
+  get carregado(): boolean {
+    return this.model !== null;
+  }
+
+  get contextoAtivo(): boolean {
+    return this.contexto;
+  }
+
+  /** Pausa o desenho quando o 3D não está na tela (libera a GPU para o PDF). */
+  definirVisivel(visivel: boolean): void {
+    const renderer = this.world.renderer;
+    if (!renderer || this.descartado || !this.contexto) return;
+    renderer.enabled = visivel;
+    if (!visivel) return;
+    renderer.resize(undefined);
+    renderer.needsUpdate = true;
+    void this.fragments.core.update(true);
+  }
+
+  private aoPerderContexto(): void {
+    if (this.descartado || !this.contexto) return;
+    this.contexto = false;
+    this.onContextoPerdido?.();
+  }
+
+  /** Fragments já convertidos, para recriar o visualizador sem converter o IFC de novo. */
+  async exportarFragmentos(): Promise<ArrayBuffer | null> {
+    if (!this.model || this.descartado) return null;
+    return this.model.getBuffer(false);
+  }
+
+  /** Carrega fragments exportados por outro visualizador (recuperação rápida). */
+  async carregarFragmentos(buffer: ArrayBuffer): Promise<void> {
+    // O worker recebe o buffer por transferência e o esvazia: manda uma cópia.
+    this.model = await this.fragments.core.load(buffer.slice(0), { modelId: "modelo" });
+    await this.prepararModelo();
   }
 
   /** Carrega o IFC de uma URL ou de um arquivo já escolhido no navegador (sem novo download). */
@@ -104,7 +169,11 @@ export class Viewer3D {
     this.model = await loader.load(bytes, false, "modelo", {
       processData: { progressCallback: (p) => aoProgredir?.(p) },
     });
-    if (this.descartado) return;
+    await this.prepararModelo();
+  }
+
+  private async prepararModelo(): Promise<void> {
+    if (this.descartado || !this.model) return;
     this.todos = await this.model.getItemsIdsWithGeometry();
     const categorias = await this.model.getItemsOfCategories([/^IFCSPACE$/i]);
     for (const ids of Object.values(categorias)) ids.forEach((id) => this.espacos.add(id));
@@ -200,6 +269,7 @@ export class Viewer3D {
   dispose(): void {
     this.descartado = true;
     this.onPick = null;
+    this.onContextoPerdido = null;
     this.components.dispose();
   }
 

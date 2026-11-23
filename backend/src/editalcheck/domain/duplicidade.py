@@ -6,6 +6,7 @@ parecidas com valores numéricos diferentes viram candidatas a contradição.
 """
 
 import re
+from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -14,8 +15,14 @@ from editalcheck.domain.models import Evidencia, Topico
 from editalcheck.domain.vagueness import dividir_sentencas
 
 LIMITE_DUPLICIDADE = 0.85
-LIMITE_CONTRADICAO = 0.7
+LIMITE_CONTRADICAO = 0.8
 PALAVRAS_MINIMAS = 8
+# O mesmo texto com números trocados 3+ vezes é lista ou tabela (itens de planilha,
+# prazos por etapa), não contradição.
+REPETICOES_DE_LISTA = 3
+MAX_PARES = 20  # o relatório mostra os casos mais fortes; o resto seria ruído
+TRIGRAMAS_EM_COMUM = 3
+TRIGRAMA_FREQUENTE = 40  # trigramas presentes em muitas frases não indicam semelhança
 _MARCADOR = re.compile(r"\[p\.\s*(\d+)\]")
 _NUMERO_CLAUSULA = re.compile(r"^\s*\d{1,2}(?:\.\d{1,2})+\.?\s+")
 _NUMERO = re.compile(r"\d+(?:[.,]\d+)?")
@@ -80,17 +87,48 @@ def _sem_cabecalhos(frases: list[_Frase]) -> list[_Frase]:
     return [f for f in frases if len(paginas[f.trigramas]) < PAGINAS_CABECALHO]
 
 
+def _candidatos(frases: Sequence[_Frase]) -> list[tuple[int, int]]:
+    """Pares que compartilham trigramas raros (índice invertido: evita comparar tudo com tudo)."""
+    indice: dict[tuple[str, ...], list[int]] = defaultdict(list)
+    for posicao, frase in enumerate(frases):
+        for trigrama in frase.trigramas:
+            indice[trigrama].append(posicao)
+    em_comum: Counter[tuple[int, int]] = Counter()
+    for posicoes in indice.values():
+        if len(posicoes) > TRIGRAMA_FREQUENTE:
+            continue
+        for x, i in enumerate(posicoes):
+            for j in posicoes[x + 1 :]:
+                em_comum[(i, j)] += 1
+    return [par for par, total in em_comum.items() if total >= TRIGRAMAS_EM_COMUM]
+
+
 def encontrar(topicos: Sequence[Topico]) -> list[ParSentencas]:
     frases = _sem_cabecalhos([f for t in topicos if not t.agrupador for f in _frases(t)])
+    repeticoes = Counter(f.trigramas for f in frases)
+    frases = [f for f in frases if repeticoes[f.trigramas] < REPETICOES_DE_LISTA]
+    achados: list[tuple[float, int, int, bool]] = []
+    for i, j in _candidatos(frases):
+        a, b = frases[i], frases[j]
+        if a.evidencia.trecho == b.evidencia.trecho and a.topico_id == b.topico_id:
+            continue
+        similaridade = _jaccard(a.trigramas, b.trigramas)
+        diferentes = bool(a.numeros) and bool(b.numeros) and a.numeros != b.numeros
+        if similaridade >= LIMITE_DUPLICIDADE and not diferentes:
+            achados.append((similaridade, i, j, False))
+        elif similaridade >= LIMITE_CONTRADICAO and diferentes:
+            achados.append((similaridade, i, j, True))
+    # Cada frase entra em um par só, do mais parecido para o menos parecido.
+    achados.sort(key=lambda item: item[0], reverse=True)
+    usadas: set[int] = set()
     pares: list[ParSentencas] = []
-    for i, a in enumerate(frases):
-        for b in frases[i + 1 :]:
-            if a.evidencia.trecho == b.evidencia.trecho and a.topico_id == b.topico_id:
-                continue
-            similaridade = _jaccard(a.trigramas, b.trigramas)
-            diferentes = bool(a.numeros) and bool(b.numeros) and a.numeros != b.numeros
-            if similaridade >= LIMITE_DUPLICIDADE and not diferentes:
-                pares.append(ParSentencas(a.evidencia, b.evidencia, similaridade, False))
-            elif similaridade >= LIMITE_CONTRADICAO and diferentes:
-                pares.append(ParSentencas(a.evidencia, b.evidencia, similaridade, True))
+    for similaridade, i, j, diferentes in achados:
+        if i in usadas or j in usadas:
+            continue
+        usadas.update((i, j))
+        pares.append(
+            ParSentencas(frases[i].evidencia, frases[j].evidencia, similaridade, diferentes)
+        )
+        if len(pares) >= MAX_PARES:
+            break
     return pares

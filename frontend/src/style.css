@@ -1340,6 +1340,27 @@ textarea {
   max-width: 520px;
 }
 
+.viewer-aviso {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 2;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(255, 243, 224, 0.95);
+  border: 1px solid #f0c27b;
+  font-size: 0.85rem;
+}
+
+.edital-status {
+  font-size: 0.85rem;
+}
+
+.edital-status.aviso {
+  color: #8a4b16;
+}
+
 .detalhe {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -2200,4 +2221,19 @@ textarea {
     border-bottom: 1px solid var(--border);
     min-height: 420px;
   }
+}
+
+.botao-download {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.download-falha {
+  color: #b3261e;
+  max-width: 320px;
+}
+
+.download-falha:empty {
+  display: none;
 }

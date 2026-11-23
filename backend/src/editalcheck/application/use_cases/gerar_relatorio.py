@@ -1,8 +1,10 @@
 """Casos de uso do relatório: montar (JSON), publicar (HTML e BCF), registrar
 decisões humanas e exportar o edital anotado e a matriz de esclarecimentos."""
 
+from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from threading import Lock
 
 from editalcheck.application.consumo import ExecutorComContexto, MedidorConsumo
 from editalcheck.application.errors import EntradaInvalidaError, NaoEncontradoError
@@ -41,6 +43,7 @@ MAX_PARALELO = 4
 ARQUIVO_HTML = "relatorio.html"
 ARQUIVO_BCF = "resultado.bcf"
 SEVERIDADES_COM_IA = frozenset({Severidade.ALTA, Severidade.MEDIA})
+MAX_PDFS_EM_CACHE = 8
 
 
 @dataclass(frozen=True)
@@ -295,6 +298,9 @@ class ExportarEdital:
         self._repo = repositorio
         self._anotador = anotador
         self._esclarecimentos = esclarecimentos
+        # O PDF anotado só muda quando as decisões mudam: cache por verificação e decisões.
+        self._cache: OrderedDict[tuple, bytes] = OrderedDict()
+        self._trava = Lock()
 
     def _relatorio(self, verificacao_id: str) -> Relatorio:
         relatorio = self._repo.get_relatorio(verificacao_id)
@@ -304,11 +310,24 @@ class ExportarEdital:
 
     def anotado(self, verificacao_id: str) -> bytes:
         relatorio = self._relatorio(verificacao_id)
+        chave = (verificacao_id, relatorio.decisoes)
+        with self._trava:
+            if chave in self._cache:
+                return self._cache[chave]
         pdf = self._repo.read_file(relatorio.projeto_id, ARQUIVO_EDITAL)
         if pdf is None:
             raise NaoEncontradoError("O edital deste projeto não está mais disponível.")
-        with etapa("relatorio.edital_anotado", verificacao=verificacao_id):
-            return self._anotador.annotate(pdf, relatorio.apontamentos, relatorio.decisoes)
+        with etapa(
+            "relatorio.edital_anotado",
+            verificacao=verificacao_id,
+            apontamentos=len(relatorio.apontamentos),
+        ):
+            conteudo = self._anotador.annotate(pdf, relatorio.apontamentos, relatorio.decisoes)
+        with self._trava:
+            self._cache[chave] = conteudo
+            while len(self._cache) > MAX_PDFS_EM_CACHE:
+                self._cache.popitem(last=False)
+        return conteudo
 
     def matriz(self, verificacao_id: str) -> bytes:
         return self._esclarecimentos.to_xlsx(self._relatorio(verificacao_id))

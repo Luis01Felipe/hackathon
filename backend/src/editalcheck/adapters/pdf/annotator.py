@@ -20,7 +20,7 @@ from dataclasses import dataclass
 
 import pymupdf
 
-from editalcheck.adapters.pdf.localizador import retangulos_do_trecho
+from editalcheck.adapters.pdf.localizador import PaginasIndexadas, retangulos_do_trecho
 from editalcheck.domain.models import (
     Apontamento,
     DecisaoApontamento,
@@ -114,45 +114,41 @@ def _do_edital(apontamento: Apontamento):
 
 
 class _Sumario:
-    """Escreve o sumário em páginas novas no início do documento."""
+    """Sumário diagramado de uma vez com `pymupdf.Story`, num PDF à parte.
 
-    def __init__(self, documento: pymupdf.Document, largura: float, altura: float) -> None:
-        self._doc = documento
-        self._largura = largura
-        self._altura = altura
-        self.paginas = 0
-        self._y = 0.0
-        self.itens: list[
-            tuple[int, pymupdf.Rect, str]
-        ] = []  # (página do sumário, área, apontamento)
-        self.links_externos: list[tuple[int, pymupdf.Rect, str]] = []
-        self.pagina_do_item: dict[str, int] = {}
+    Uma única diagramação embute a fonte uma vez (inserir bloco a bloco embutia a fonte
+    a cada bloco e o arquivo crescia centenas de MB). Cada item é um `<div id=...>`:
+    a posição dele vira o link para o trecho; `<a href>` externos viram links nativos.
+    """
 
-    def _nova_pagina(self) -> None:
-        self._doc.new_page(pno=self.paginas, width=self._largura, height=self._altura)
-        self.paginas += 1
-        self._y = MARGEM
+    def __init__(self, conteudo_html: str, largura: float, altura: float) -> None:
+        self.areas: dict[str, tuple[int, pymupdf.Rect]] = {}  # id -> (página, área)
+        area_util = pymupdf.Rect(MARGEM, MARGEM, largura - MARGEM, altura - MARGEM)
+        pagina = pymupdf.Rect(0, 0, largura, altura)
 
-    def escrever(self, conteudo: str) -> pymupdf.Rect:
-        """Escreve um bloco HTML; abre página nova se não couber. Devolve a área usada."""
-        if self.paginas == 0:
-            self._nova_pagina()
-        for tentativa in range(2):
-            pagina = self._doc[self.paginas - 1]
-            area = pymupdf.Rect(MARGEM, self._y, self._largura - MARGEM, self._altura - MARGEM)
-            sobra, _ = pagina.insert_htmlbox(
-                area, conteudo, css=CSS, scale_low=1 if tentativa == 0 else 0
-            )
-            if sobra >= 0:
-                usada = pymupdf.Rect(area.x0, area.y0, area.x1, area.y1 - sobra)
-                self._y = usada.y1 + 4
-                return usada
-            self._nova_pagina()
-        return pymupdf.Rect(MARGEM, self._y, self._largura - MARGEM, self._y)
+        def retangulo(_numero: int, _preenchido: pymupdf.Rect):
+            return pagina, area_util, None
 
-    @property
-    def pagina_atual(self) -> int:
-        return self.paginas - 1
+        def posicao(elemento) -> None:
+            if not (elemento.open_close & 1) or not elemento.id:
+                return
+            self.areas.setdefault(elemento.id, (elemento.page_num - 1, pymupdf.Rect(elemento.rect)))
+
+        historia = pymupdf.Story(html=conteudo_html, user_css=CSS)
+        self.documento: pymupdf.Document = historia.write_with_links(retangulo, posicao)
+        self.paginas: int = self.documento.page_count
+
+    def pagina_do_item(self, apontamento_id: str) -> int | None:
+        area = self.areas.get(_ancora(apontamento_id))
+        return area[0] if area else None
+
+
+def _ancora(apontamento_id: str) -> str:
+    return "item-" + "".join(c if c.isalnum() or c in "-_" else "_" for c in apontamento_id)
+
+
+def _uri_segura(uri: str) -> bool:
+    return uri.startswith(("https://", "http://"))
 
 
 class PyMuPdfEditalAnnotator:
@@ -172,8 +168,11 @@ class PyMuPdfEditalAnnotator:
         with pymupdf.open(stream=pdf, filetype="pdf") as documento:
             locais, marcadores = self._anotar(documento, itens, por_id)
             primeira = documento[0].rect if documento.page_count else pymupdf.paper_rect("a4")
-            sumario = _Sumario(documento, primeira.width, primeira.height)
-            self._escrever_sumario(sumario, itens, locais, por_id)
+            sumario = _Sumario(
+                self._html_sumario(itens, locais, por_id), primeira.width, primeira.height
+            )
+            with sumario.documento:
+                documento.insert_pdf(sumario.documento, start_at=0)
             self._ligar(documento, sumario, locais, marcadores)
             documento.set_toc(self._indice(itens, locais, sumario))
             return documento.tobytes(garbage=3, deflate=True)
@@ -189,6 +188,7 @@ class PyMuPdfEditalAnnotator:
         locais: dict[str, _Local] = {}
         marcadores: list[_Marcador] = []
         sem_trecho: dict[int, list[str]] = {}
+        indexadas = PaginasIndexadas()
         ocupadas: dict[int, list[float]] = {}  # alturas já usadas por etiquetas, por página
         for apontamento in itens:
             nota = _nota(apontamento, decisoes.get(apontamento.id))
@@ -196,7 +196,7 @@ class PyMuPdfEditalAnnotator:
                 if not 1 <= evidencia.pagina <= documento.page_count:
                     continue
                 pagina = documento[evidencia.pagina - 1]
-                areas = retangulos_do_trecho(pagina, evidencia.trecho)
+                areas = retangulos_do_trecho(pagina, evidencia.trecho, indexadas.de(pagina))
                 if not areas:
                     sem_trecho.setdefault(pagina.number, []).append(nota)
                     locais.setdefault(apontamento.id, _Local(pagina.number, 20))
@@ -239,47 +239,45 @@ class PyMuPdfEditalAnnotator:
 
     # ------------------------------------------------------------------ sumário
 
-    def _escrever_sumario(
+    def _html_sumario(
         self,
-        sumario: _Sumario,
         itens: Sequence[Apontamento],
         locais: dict[str, _Local],
         decisoes: dict[str, DecisaoApontamento],
-    ) -> None:
-        sumario.escrever(
+    ) -> str:
+        partes = [
             "<p style='font-size:15pt'><b>Ajustes sugeridos pelo EditalCheck</b></p>"
             f"<p style='font-size:9pt;color:#444'>{len(itens)} apontamento(s). Clique num item "
             "para ir ao trecho. No trecho, clique na etiqueta da margem (ex.: APT-006) para "
             "voltar a este sumário. Os detalhes também estão nas notas dos grifos.</p>"
             f"<p style='font-size:8pt;color:#8a4b16'>{_esc(AVISO_JURIDICO)}</p>"
-        )
+        ]
         for origem in (OrigemInconsistencia.EDITAL, OrigemInconsistencia.MODELO):
             grupo = [a for a in itens if a.origem == origem]
             if not grupo:
                 continue
             cor = "#6a3fb5" if origem == OrigemInconsistencia.EDITAL else "#00796b"
-            sumario.escrever(
-                f"<p style='font-size:12pt;color:{cor}'><b>{_esc(SECAO[origem])} "
-                f"({len(grupo)})</b></p>"
+            partes.append(
+                f"<p style='font-size:12pt;color:{cor};margin-top:8pt'>"
+                f"<b>{_esc(SECAO[origem])} ({len(grupo)})</b></p>"
             )
-            for apontamento in grupo:
-                self._item(sumario, apontamento, locais.get(apontamento.id), decisoes)
+            partes.extend(self._item(a, locais.get(a.id), decisoes.get(a.id)) for a in grupo)
+        return "".join(partes)
 
     @staticmethod
     def _item(
-        sumario: _Sumario,
         apontamento: Apontamento,
         local: _Local | None,
-        decisoes: dict[str, DecisaoApontamento],
-    ) -> None:
+        decisao: DecisaoApontamento | None,
+    ) -> str:
         onde = (
             f"página {local.pagina + 1} do edital"
             if local
             else "sem trecho no edital: cláusula nova"
         )
-        decisao = decisoes.get(apontamento.id)
         partes = [
-            f"<p style='font-size:9pt'><b>{apontamento.id}</b> · "
+            f"<div id='{_ancora(apontamento.id)}'>",
+            f"<p style='font-size:9pt'><b>{_esc(apontamento.id)}</b> · "
             f"<span style='color:{HEX_SEVERIDADE[apontamento.severidade]}'>"
             f"{ROTULO_SEVERIDADE[apontamento.severidade]}</span> · {_esc(onde)}</p>",
             f"<p style='font-size:9.5pt'><b>{_esc(apontamento.titulo)}</b></p>",
@@ -293,19 +291,17 @@ class PyMuPdfEditalAnnotator:
             if decisao.comentario:
                 texto += f" — {decisao.comentario}"
             partes.append(f"<p style='font-size:8.5pt'><b>Decisão:</b> {_esc(texto)}</p>")
-        area = sumario.escrever("".join(partes))
-        sumario.pagina_do_item[apontamento.id] = sumario.pagina_atual
-        if local:
-            sumario.itens.append((sumario.pagina_atual, area, apontamento.id))
+        partes.append("</div>")
         for referencia in apontamento.referencias:
-            if not referencia.uri:
+            if not referencia.uri or not _uri_segura(referencia.uri):
                 continue
-            linha = sumario.escrever(
-                f"<p style='font-size:8pt;color:#1f5fbf'>Referência: {_esc(referencia.rotulo)}"
-                f" — {_esc(referencia.uri)}</p>"
+            partes.append(
+                f"<p style='font-size:8pt'>Referência: <a href='{html.escape(referencia.uri)}' "
+                f"style='color:#1f5fbf'>{_esc(referencia.rotulo)}</a> "
+                f"<span style='color:#666'>({_esc(referencia.uri)})</span></p>"
             )
-            sumario.links_externos.append((sumario.pagina_atual, linha, referencia.uri))
-        sumario.escrever("<p style='font-size:4pt'>&nbsp;</p>")
+        partes.append("<p style='font-size:5pt'>&#160;</p>")
+        return "".join(partes)
 
     # ------------------------------------------------------------------ links
 
@@ -317,20 +313,21 @@ class PyMuPdfEditalAnnotator:
         marcadores: Sequence[_Marcador],
     ) -> None:
         deslocamento = sumario.paginas
-        for pagina, area, apontamento_id in sumario.itens:
-            local = locais[apontamento_id]
+        for apontamento_id, local in locais.items():
+            area = sumario.areas.get(_ancora(apontamento_id))
+            if area is None:
+                continue
+            pagina, retangulo = area
             documento[pagina].insert_link(
                 {
                     "kind": pymupdf.LINK_GOTO,
-                    "from": area,
+                    "from": retangulo,
                     "page": local.pagina + deslocamento,
                     "to": pymupdf.Point(0, max(0.0, local.y - 30)),
                 }
             )
-        for pagina, area, uri in sumario.links_externos:
-            documento[pagina].insert_link({"kind": pymupdf.LINK_URI, "from": area, "uri": uri})
         for marcador in marcadores:
-            destino = sumario.pagina_do_item.get(marcador.apontamento_id)
+            destino = sumario.pagina_do_item(marcador.apontamento_id)
             if destino is None:
                 continue
             documento[marcador.pagina + deslocamento].insert_link(
@@ -355,7 +352,7 @@ class PyMuPdfEditalAnnotator:
                 pagina = (
                     local.pagina + sumario.paginas + 1
                     if local
-                    else sumario.pagina_do_item.get(apontamento.id, 0) + 1
+                    else (sumario.pagina_do_item(apontamento.id) or 0) + 1
                 )
                 titulo = f"{apontamento.id} · {apontamento.titulo}"
                 indice.append([2, titulo[:120], pagina])

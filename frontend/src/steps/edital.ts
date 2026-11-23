@@ -1,10 +1,10 @@
 // Resultados — aba "Edital": o PDF à esquerda, com um grifo por apontamento, e os ajustes à
 // direita. Clicar num ajuste leva ao trecho e abre o detalhe. Só leitura: o PDF não é editado.
-import { api, urls } from "../api";
+import { api, baixarArquivo, urls } from "../api";
 import { DECISAO, ORIGEM_INCONSISTENCIA, QUEM_CORRIGE, SEVERIDADE, TIPO_APONTAMENTO, rotulo } from "../labels";
 import { VisualizadorPdf, type MarcaPdf } from "../pdf";
 import type { Apontamento, Decisao, LocalApontamento, Relatorio } from "../types";
-import { append, badge, botao, carregando, erro, h, limpar, linkDownload, mensagemErro, vazio } from "../ui";
+import { append, badge, botao, botaoDownload, carregando, erro, h, limpar, mensagemErro, vazio } from "../ui";
 import { citacao } from "./eir";
 
 const ORDEM_SEVERIDADE: Record<string, number> = { alta: 0, media: 1, baixa: 2 };
@@ -12,6 +12,8 @@ const filtros = { edital: true, modelo: true, severidade: "todas" };
 
 export interface AbaEdital {
   elemento: HTMLElement;
+  /** Aba escondida libera a memória das páginas do PDF. */
+  definirVisivel: (visivel: boolean) => void;
   dispose: () => void;
 }
 
@@ -29,6 +31,7 @@ export function renderAbaEdital(r: Relatorio, decisoes: Map<string, Decisao>, op
   const host = h("div", { class: "edital-visualizador" }, carregando("Abrindo o edital…"));
   const lista = h("div", { class: "edital-lista" });
   const contagem = h("span", { class: "texto-suave" });
+  const status = h("span", { class: "edital-status texto-suave", role: "status" }, "Localizando os trechos no edital…");
 
   /** Apontamentos que cabem na aba: todos os do edital e os do modelo ligados a uma cláusula. */
   const candidatos = () =>
@@ -212,8 +215,14 @@ export function renderAbaEdital(r: Relatorio, decisoes: Map<string, Decisao>, op
       { class: "cartao-titulo" },
       h("h3", null, "Edital com os ajustes"),
       contagem,
+      status,
       h("span", { class: "espaco" }),
-      linkDownload("Baixar PDF com as sugestões", urls.editalAnotado(r.verificacao_id), "primario"),
+      botaoDownload(
+        "Baixar PDF com as sugestões",
+        () => baixarArquivo(urls.editalAnotado(r.verificacao_id)),
+        "edital-anotado.pdf",
+        "primario",
+      ),
     ),
     h(
       "p",
@@ -232,30 +241,57 @@ export function renderAbaEdital(r: Relatorio, decisoes: Map<string, Decisao>, op
   );
 
   desenharLista();
-  void (async () => {
-    try {
-      const lidos = await api.regioesApontamentos(r.verificacao_id);
+
+  // O PDF e a localização dos trechos chegam em paralelo: o edital aparece assim que
+  // baixa, e os grifos entram quando a localização termina (ou não entram, se falhar).
+  const aplicarMarcas = () => {
+    if (!visualizador) return;
+    visualizador.definirMarcas(marcas());
+    if (ativo) selecionar(ativo);
+  };
+
+  void api
+    .regioesApontamentos(r.verificacao_id)
+    .then((lidos) => {
       if (descartado) return;
       locais = new Map(lidos.map((l) => [l.apontamento_id, l]));
+      const comGrifo = lidos.filter((l) => l.regioes.length > 0).length;
+      status.textContent = `${comGrifo} trecho(s) grifado(s)`;
       desenharLista();
-      const v = await VisualizadorPdf.criar(host, urls.editalPdf(r.projeto_id));
+      aplicarMarcas();
+    })
+    .catch((e: unknown) => {
+      if (descartado) return;
+      console.error("EditalCheck: falha ao localizar os trechos", e);
+      status.textContent = `Sem grifos: não foi possível localizar os trechos (${mensagemErro(e)}). A lista e o PDF continuam disponíveis.`;
+      status.classList.add("aviso");
+    });
+
+  void VisualizadorPdf.criar(host, urls.editalPdf(r.projeto_id))
+    .then((v) => {
       if (descartado) {
         v.dispose();
         return;
       }
       visualizador = v;
       v.onMarca = (id) => selecionar(id, false);
-      v.definirMarcas(marcas());
-      if (ativo) selecionar(ativo);
-    } catch (e) {
+      aplicarMarcas();
+    })
+    .catch((e: unknown) => {
       if (descartado) return;
+      console.error("EditalCheck: falha ao abrir o PDF do edital", e);
       limpar(host);
-      host.append(erro(`Não foi possível abrir o edital: ${mensagemErro(e)}`));
-    }
-  })();
+      host.append(
+        erro(
+          `Não foi possível abrir o edital no navegador: ${mensagemErro(e)}. ` +
+            "Use o botão “Baixar PDF com as sugestões” ou a lista ao lado.",
+        ),
+      );
+    });
 
   return {
     elemento,
+    definirVisivel: (visivel) => visualizador?.definirVisivel(visivel),
     dispose: () => {
       descartado = true;
       visualizador?.dispose();
