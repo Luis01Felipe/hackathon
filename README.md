@@ -156,7 +156,7 @@ Dicas:
 - **Logs:** `docker compose logs -f app`.
 - **Status:** `docker compose ps` mostra `healthy` quando `/api/config` responde.
 - **Dados:** o compose usa o modo efêmero. Projetos, arquivos e relatórios ficam só na memória do contêiner. No disco ficam apenas o log de auditoria sem conteúdo (`var/auditoria/`) e o cache do bSDD (`.cache/bsdd/`, dados públicos). Um reinício do contêiner apaga os projetos em andamento.
-- **Ambiente de demonstração:** defina `EDITALCHECK_DISPONIVEL_ATE` (DD/MM/AAAA) no `.env.deploy`. A data aparece numa faixa no topo da tela.
+- **Ambiente de demonstração (opcional):** `EDITALCHECK_DISPONIVEL_ATE` (DD/MM/AAAA) mostra uma data de desligamento na faixa do topo. Vazio, a faixa mostra só o aviso de que os dados ficam em memória.
 - **Uma réplica:** no modo efêmero, cada projeto vive na memória de um processo. Mantenha uma réplica ou a sessão fixa do Traefik (já configurada).
 - **Domínio:** o padrão é `atena.construtivo.com`. Para usar outro, defina `APP_DOMAIN` no ambiente ou num `.env` ao lado do compose.
 - **Outro prefixo:** troque `/editalcheck` nas labels, em `BASE_PATH` e em `EDITALCHECK_ROOT_PATH`.

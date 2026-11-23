@@ -742,7 +742,7 @@ Pacotes de contexto e NBR 15965 (RF-142, RF-143), comparação de verificações
 | D12 | API Gemini paga e treino de modelos | **Confirmado pelo time:** a API paga não usa os dados para treino. O aviso da interface diz isso | Time |
 | D13 | A ABNT NBR 15965 está publicada no bSDD? | **Em aberto.** Enquanto isso, classificações fora do bSDD saem como `customizado` | P2 |
 | D14 | Versões vigentes das normas | **Conferidas em catálogos públicos em 22/11/2026:** ISO 29481-1:2025; ISO 19650-1:2018 e ABNT NBR ISO 19650-1:2022; ISO 7817-1:2024 (substituiu a EN 17412-1:2020); NBR 15965 em partes, sem lista completa confirmada | P4 |
-| D15 | Data do desligamento do servidor | 25/11/2026 em `.env.deploy.example` (`EDITALCHECK_DISPONIVEL_ATE`) [confirmar] | Luis Felipe |
+| D15 | Data do desligamento do servidor | **Decidido:** não exibir data. `EDITALCHECK_DISPONIVEL_ATE` fica vazio; a variável continua disponível | Time |
 | D16 | Artigo sobre geração de IDS com IA citado pelo time | **Pesquisado.** Candidatos: Ishigaki-IDS-Bench (arXiv:2605.22079), Ishigaki-IDS (arXiv:2606.08545) e Hosseini et al., capítulo da Taylor & Francis sobre mapeamento de linguagem natural para IFC na autoria de IDS. O time confirma qual foi lido | Time |
 
 ---
