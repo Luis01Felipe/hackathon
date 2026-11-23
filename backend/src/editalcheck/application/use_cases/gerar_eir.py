@@ -1,4 +1,4 @@
-"""Caso de uso: gerar os requisitos de informação (RI) dos tópicos selecionados.
+"""Caso de uso: gerar os requisitos de informação (IR) dos tópicos selecionados.
 
 Aplica as salvaguardas S2 a S4. As lições aprendidas também geram requisitos
 propostos (RF-105), que passam pela aprovação humana como os demais.
@@ -16,6 +16,7 @@ from editalcheck.application.ports import (
     ProjectRepository,
     RequirementExtractor,
 )
+from editalcheck.domain.classificacao import classificar, limpar_ambientes
 from editalcheck.domain.evidence import (
     clausula_do_trecho,
     conferir_evidencia,
@@ -93,6 +94,7 @@ class ValidadorRequisitos:
             propriedades_oficiais=tuple(oficiais.values()),
             propriedades_por_classe=tuple(por_classe),
             termos_bsdd=tuple(termos_bsdd),
+            ambientes_modelo=ambientes_do_modelo(projeto),
         )
 
     def validar(
@@ -178,6 +180,16 @@ class ValidadorRequisitos:
         return replace(
             requisito, origem_vocabulario=origem, bsdd_uri=uri, avisos=tuple(dict.fromkeys(avisos))
         )
+
+
+def ambientes_do_modelo(projeto: Projeto) -> tuple[str, ...]:
+    """Nomes dos ambientes (IfcSpace) do modelo: LongName ou, sem ele, Name."""
+    nomes = (
+        e.nome_longo or e.nome or ""
+        for e in projeto.modelo.elementos
+        if e.classe.lower() == "ifcspace"
+    )
+    return limpar_ambientes(nomes)
 
 
 def _chave(requisito: Requisito) -> tuple:
@@ -301,7 +313,7 @@ class GerarEir:
                 if chave in vistos:
                     continue
                 vistos.add(chave)
-                aprovados.append(validado)
+                aprovados.append(classificar(validado, contexto.ambientes_modelo, topico.titulo))
         for requisitos, aviso in das_licoes:
             if aviso:
                 avisos.append(aviso)
@@ -368,7 +380,6 @@ class GerarEir:
                 licao_id=licao.id,
                 avisos=(*requisito.avisos, AVISO_LICAO),
             )
-            validados.append(
-                self._validador.validar_mapeamento(ajustado, projeto.modelo.schema, contexto)
-            )
+            validado = self._validador.validar_mapeamento(ajustado, projeto.modelo.schema, contexto)
+            validados.append(classificar(validado, contexto.ambientes_modelo, licao.titulo))
         return validados, (f"Lição {licao.id}: {aviso}" if aviso else None)

@@ -32,6 +32,27 @@ class RequisitoLLM(BaseModel):
     tipo_dado: str | None = Field(default=None, description="Tipo IFC do valor, ex.: IfcLabel")
     restricao: RestricaoLLM | None = None
     cardinalidade: Literal["required", "optional", "prohibited"] = "required"
+    ambientes: list[str] = Field(
+        default_factory=list, description="Ambientes a que o requisito se aplica"
+    )
+    item_checagem: (
+        Literal[
+            "ILUM",
+            "VENT",
+            "ELET",
+            "INCE",
+            "ACES",
+            "ACUS",
+            "HIDR",
+            "DADO",
+            "ACAB",
+            "OPER",
+            "DIME",
+            "ESTR",
+        ]
+        | None
+    ) = None
+    verificacao: Literal["ids", "ids_script", "script", "manual"] | None = None
 
 
 class ExtracaoLLM(BaseModel):

@@ -1,7 +1,7 @@
 """Caso de uso: posição dos tópicos e dos apontamentos no PDF do edital.
 
 Alimenta o visualizador do navegador (só leitura): a confirmação dos tópicos
-antes de gerar os RI e a aba "Edital" dos resultados. O PDF continua só em
+antes de gerar os IR e a aba "Edital" dos resultados. O PDF continua só em
 memória; as posições ficam num cache pequeno, por projeto e por verificação.
 """
 

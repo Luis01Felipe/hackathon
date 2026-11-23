@@ -34,7 +34,7 @@ ROTULOS_DECISAO = {
 }
 POSICIONAMENTO = (
     "O EditalCheck transforma as exigências de um edital, escritas em linguagem natural, num "
-    "contrato de dados operacional: os requisitos de informação (RI) e o IDS. Depois, verifica o "
+    "contrato de dados operacional: os requisitos de informação (IR) e o IDS. Depois, verifica o "
     "modelo IFC contra esse contrato e o edital contra boas práticas. O objetivo é chegar a um "
     "consenso entre contratante e contratado antes que o problema chegue à obra."
 )
@@ -42,7 +42,7 @@ POSICIONAMENTO = (
 # Confirme a vigência no catálogo oficial antes de citar em contrato.
 GLOSSARIO = (
     (
-        "RI — Requisitos de informação",
+        "IR — Requisitos de informação (Information Requirements)",
         "O que o contratante exige que o modelo contenha em cada entrega do contrato. Aqui são extraídos do edital e aprovados por uma pessoa.",
         "ISO 19650-1:2018 (no Brasil, ABNT NBR ISO 19650-1:2022) usa os termos OIR, PIR, AIR e EIR.",
     ),

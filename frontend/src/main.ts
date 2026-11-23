@@ -7,6 +7,7 @@ import { descartarResultados, pedirFocoNoEdital, renderResultados } from "./step
 import { renderTopicos } from "./steps/topicos";
 import { renderUpload } from "./steps/upload";
 import { pararPolling, renderVerificacao } from "./steps/verificacao";
+import { barraFiltros, campoBusca, contem } from "./filtros";
 import { GLOSSARIO } from "./labels";
 import { abrirModal, badge, h, limpar, mensagemErro, toast } from "./ui";
 
@@ -53,17 +54,23 @@ async function encerrarEApagar(): Promise<void> {
 }
 
 function abrirGlossario(): void {
-  const lista = h(
-    "dl",
-    { class: "glossario" },
-    GLOSSARIO.flatMap((g) => [
-      h("dt", null, g.termo),
-      h("dd", null, g.definicao, h("small", { class: "texto-suave" }, ` Referência: ${g.referencia}`)),
-    ]),
-  );
+  const lista = h("dl", { class: "glossario" });
+  const desenhar = (termo: string) => {
+    const visiveis = GLOSSARIO.filter((g) => contem(termo, g.termo, g.definicao, g.referencia));
+    lista.replaceChildren(
+      ...(visiveis.length
+        ? visiveis.flatMap((g) => [
+            h("dt", null, g.termo),
+            h("dd", null, g.definicao, h("small", { class: "texto-suave" }, ` Referência: ${g.referencia}`)),
+          ])
+        : [h("dd", { class: "texto-suave" }, "Nenhum termo encontrado.")]),
+    );
+  };
+  desenhar("");
   const conteudo = h(
     "div",
     null,
+    barraFiltros(campoBusca("Buscar termo do glossário", "", desenhar)),
     lista,
     h(
       "p",
@@ -242,7 +249,7 @@ async function abrirPorLink(): Promise<boolean> {
     estado.relatorio = relatorio;
     estado.projeto = await api.projeto(relatorio.projeto_id);
     estado.verificacao = await api.verificacao(verificacaoId);
-    estado.eir = await api.ri(relatorio.projeto_id).catch(() => null);
+    estado.eir = await api.ir(relatorio.projeto_id).catch(() => null);
     estado.passo = 6;
     pedirFocoNoEdital(parametros.get("apontamento"));
     return true;

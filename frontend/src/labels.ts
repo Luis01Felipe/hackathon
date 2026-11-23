@@ -1,5 +1,5 @@
 // Rótulos em português para os enums do contrato.
-import type { Requisito, Restricao } from "./types";
+import type { ItemChecagem, Requisito, Restricao, TipoVerificacao } from "./types";
 import { num } from "./ui";
 
 export const TIPO_APONTAMENTO: Record<string, string> = {
@@ -84,6 +84,46 @@ export const TIPO_RESTRICAO: Record<string, string> = {
   padrao: "Padrão (regex)",
   intervalo: "Intervalo",
 };
+
+/** Itens de checagem (disciplinas) da planilha de IR. */
+export const ITEM_CHECAGEM: Record<ItemChecagem, string> = {
+  ILUM: "Iluminação",
+  VENT: "Ventilação e climatização",
+  ELET: "Instalações elétricas",
+  INCE: "Proteção contra incêndio e rotas de fuga",
+  ACES: "Acessibilidade",
+  ACUS: "Acústica",
+  HIDR: "Instalações hidrossanitárias e drenagem",
+  DADO: "Comunicação, dados e sinalização",
+  ACAB: "Materiais e acabamentos",
+  OPER: "Operação e manutenção",
+  DIME: "Dimensões e programa de espaços",
+  ESTR: "Estrutura, concreto e durabilidade",
+};
+
+export const TIPO_VERIFICACAO: Record<TipoVerificacao, string> = {
+  ids: "IDS",
+  ids_script: "IDS + script",
+  script: "Script geométrico",
+  manual: "Manual / documental",
+};
+
+export const DESCRICAO_VERIFICACAO: Record<TipoVerificacao, string> = {
+  ids: "O IDS verifica sozinho.",
+  ids_script: "O IDS confere a informação; parte da exigência precisa de script.",
+  script: "Só análise geométrica do modelo (IfcOpenShell). Não entra no IDS.",
+  manual: "Conferência documental. Não entra no IDS.",
+};
+
+/** Verificação efetiva: a escolhida ou, em requisitos antigos, a derivada da S3. */
+export function verificacaoDe(req: Requisito): TipoVerificacao {
+  if (req.verificacao) return req.verificacao;
+  return req.verificavel_por_ids ? "ids" : "manual";
+}
+
+export function verificacaoEntraNoIds(tipo: TipoVerificacao): boolean {
+  return tipo === "ids" || tipo === "ids_script";
+}
 
 export const ANALISE: Record<string, string> = {
   A: "Análise A · Conformidade",
@@ -177,7 +217,7 @@ export function mapeamento(req: Requisito): string {
  */
 export const GLOSSARIO: { termo: string; definicao: string; referencia: string }[] = [
   {
-    termo: "RI — Requisitos de informação",
+    termo: "IR — Requisitos de informação (Information Requirements)",
     definicao:
       "O que o contratante exige que o modelo contenha em cada entrega do contrato. Aqui são extraídos do edital e aprovados por uma pessoa.",
     referencia: "ISO 19650-1:2018 (ABNT NBR ISO 19650-1:2022) usa os termos OIR, PIR, AIR e EIR.",

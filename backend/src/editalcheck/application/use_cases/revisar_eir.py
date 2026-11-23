@@ -9,12 +9,19 @@ from editalcheck.application.errors import ConflitoError, EntradaInvalidaError, 
 from editalcheck.application.ports import ProjectRepository
 from editalcheck.application.use_cases.gerar_eir import ValidadorRequisitos
 from editalcheck.domain import marcos as marcos_domain
+from editalcheck.domain.classificacao import (
+    classificar,
+    limpar_ambientes,
+    verificacao_coerente,
+    verificavel_pelo_tipo,
+)
 from editalcheck.domain.findings import exigencia
 from editalcheck.domain.models import (
     Apontamento,
     Cardinalidade,
     Eir,
     Evidencia,
+    ItemChecagem,
     MarcoEntrega,
     Projeto,
     Requisito,
@@ -23,6 +30,7 @@ from editalcheck.domain.models import (
     TipoApontamento,
     TipoFaceta,
     TipoRestricao,
+    TipoVerificacao,
 )
 
 CAMPOS_EDITAVEIS = frozenset(
@@ -39,11 +47,14 @@ CAMPOS_EDITAVEIS = frozenset(
         "verificavel_por_ids",
         "motivo_nao_verificavel",
         "marcos",
+        "ambientes",
+        "item_checagem",
+        "verificacao",
     }
 )
 MAX_MARCOS = 20
 TRECHO_LACUNA = "Sugerido pela análise de cobertura do EditalCheck: cláusula a incluir no edital."
-SEM_RI = "Os requisitos de informação (RI) ainda não foram gerados."
+SEM_RI = "Os requisitos de informação (IR) ainda não foram gerados."
 
 
 def _texto_opcional(valor: Any) -> str | None:
@@ -85,6 +96,14 @@ def _converter(campos: Mapping[str, Any]) -> dict[str, Any]:
                     convertidos[chave] = _restricao(valor)
                 case "verificavel_por_ids":
                     convertidos[chave] = bool(valor)
+                case "item_checagem":
+                    convertidos[chave] = ItemChecagem(valor) if valor else None
+                case "verificacao":
+                    convertidos[chave] = TipoVerificacao(valor) if valor else None
+                case "ambientes":
+                    if not isinstance(valor, list | tuple):
+                        raise EntradaInvalidaError("Ambientes devem ser uma lista de nomes.")
+                    convertidos[chave] = limpar_ambientes(str(v) for v in valor)
                 case "marcos":
                     if not isinstance(valor, list | tuple):
                         raise EntradaInvalidaError("Marcos devem ser uma lista de IDs.")
@@ -98,6 +117,10 @@ def _converter(campos: Mapping[str, Any]) -> dict[str, Any]:
                     convertidos[chave] = _texto_opcional(valor)
     except ValueError as erro:
         raise EntradaInvalidaError(f"Valor inválido: {erro}") from erro
+    verificacao = convertidos.get("verificacao")
+    if verificacao is not None:
+        # O tipo de verificação escolhido na revisão decide se o requisito entra no IDS.
+        convertidos["verificavel_por_ids"] = verificavel_pelo_tipo(verificacao)
     return convertidos
 
 
@@ -159,6 +182,8 @@ class RevisarEir:
         extras = [editado.ifc_class] if editado.ifc_class else []
         contexto = self._validador.contexto(projeto, [], self._vocab, classes_extras=extras)
         validado = self._validador.validar_mapeamento(editado, projeto.modelo.schema, contexto)
+        # A S3 pode ter rebaixado o requisito: a verificação acompanha.
+        validado = replace(validado, verificacao=verificacao_coerente(validado))
         self._salvar(
             projeto, eir, [validado if r.id == requisito_id else r for r in eir.requisitos]
         )
@@ -210,9 +235,10 @@ class RevisarEir:
             requisito = replace(
                 requisito, descricao=f"{apontamento.classe_ifc} deve ter {exigencia(requisito)}"
             )
-            novos.append(
-                self._validador.validar_mapeamento(requisito, projeto.modelo.schema, contexto)
+            validado = self._validador.validar_mapeamento(
+                requisito, projeto.modelo.schema, contexto
             )
+            novos.append(classificar(validado, contexto.ambientes_modelo))
             proximo += 1
         if not novos:
             raise ConflitoError("As propriedades sugeridas já estão nos requisitos de informação.")

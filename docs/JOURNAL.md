@@ -184,3 +184,22 @@ O 3D do modelo do servidor não foi reproduzido localmente. Se falhar de novo, p
 - quedas seguidas até o plano B e depois "Tentar de novo".
 
 Em todos, o modelo volta a aparecer, sem erros no console.
+
+### Classificação dos IR, planilha no template e filtros em todas as páginas (23/11/2026)
+
+Pedido do time após a demo:
+
+- **RI → IR.** A sigla segue o inglês (*Information Requirements*), como as demais da ISO 19650. As rotas passam a usar `/ir`. As rotas `/ri` e `/eir` continuam aceitas, fora da documentação, para não quebrar links antigos. A entidade `Eir` no código não mudou.
+- **Tópico e Ambiente na revisão.** O requisito já guardava o tópico de origem (`topico_id`). A tela agora mostra número e título. O ambiente é novo (`ambientes`): a IA sugere, preferindo os nomes dos IfcSpace do modelo. Sem IA, as regras reconhecem "sala de …" e ambientes comuns. A pessoa ajusta na edição.
+- **Classificação visual, com a planilha como referência.** Duas colunas novas: **Item de checagem** (12 disciplinas, com cores) e **Verificação** (IDS, IDS + script, script geométrico, manual). A regra em `domain/classificacao.py` completa o que a IA não classificou. A verificação sempre acompanha a salvaguarda S3: um requisito rebaixado pela S3 não fica marcado como "IDS".
+- **Planilha de IR.** Reescrita no template da planilha de referência: Resumo, Requisitos (20 colunas na ordem do template), Matriz, Categorias, Itens de checagem, e Aceitação e qualidade. As abas Lacunas e Observações do template ficaram de fora: dependem da verificação e já saem na matriz de esclarecimentos.
+- **Filtros e busca.** Componente único em `frontend/src/filtros.ts`. A busca ignora acentos e caixa. Está em todas as páginas:
+  - envio;
+  - tópicos e confirmação;
+  - IR, com filtros por status, tópico, ambiente, item, verificação e origem, e chips clicáveis;
+  - IDS;
+  - verificação;
+  - resultados: apontamentos, tabelas complementares e aba Edital;
+  - glossário.
+
+**Fora do escopo, já existente:** sair dos Resultados e voltar logo em seguida gera "e is not a function" no worker do Fragments (3D). Reproduzido também na versão anterior a esta mudança.

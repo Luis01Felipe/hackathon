@@ -1,9 +1,10 @@
-// Confirmação dos tópicos no edital, antes de gerar os requisitos de informação (RI).
+// Confirmação dos tópicos no edital, antes de gerar os requisitos de informação (IR).
 // À esquerda, o PDF com os tópicos selecionados grifados; à direita, a lista para conferir,
 // marcar ou desmarcar. Os tópicos relevantes para BIM que ficaram de fora aparecem tracejados.
 import { api, urls } from "../api";
 import { VisualizadorPdf, type MarcaPdf } from "../pdf";
 import type { RegiaoPdf, Topico } from "../types";
+import { campoBusca, contem } from "../filtros";
 import { append, badge, carregando, erro, h, limpar, mensagemErro, paginas } from "../ui";
 
 const regioesEmCache = new Map<string, Record<string, RegiaoPdf[]>>();
@@ -25,7 +26,7 @@ export function abrirConfirmacaoTopicos(opcoes: Opcoes): void {
 
   const host = h("div", { class: "revisao-pdf-visualizador" }, carregando("Abrindo o edital…"));
   const lateral = h("div", { class: "revisao-pdf-lista" });
-  const confirmar = h("button", { type: "button", class: "btn btn-primario" }, "Confirmar e gerar RI");
+  const confirmar = h("button", { type: "button", class: "btn btn-primario" }, "Confirmar e gerar IR");
   const fundo = h("div", { class: "revisao-pdf", role: "dialog", "aria-modal": "true", "aria-label": "Confirmar os tópicos no edital" });
 
   const fechar = () => {
@@ -52,27 +53,39 @@ export function abrirConfirmacaoTopicos(opcoes: Opcoes): void {
       ];
     });
 
+  let busca = "";
+  const campo = campoBusca("Buscar tópico", busca, (termo) => {
+    busca = termo;
+    desenharLista();
+  });
+
   const desenharLista = () => {
     limpar(lateral);
     const escolhidos = selecionaveis.filter((t) => selecionados.has(t.id));
-    const sugeridos = selecionaveis.filter((t) => !selecionados.has(t.id) && t.relevante_bim);
-    const outros = selecionaveis.filter((t) => !selecionados.has(t.id) && !t.relevante_bim);
+    const visivel = (t: Topico) => contem(busca, t.numero, t.titulo, t.resumo);
+    const escolhidosVisiveis = escolhidos.filter(visivel);
+    const sugeridos = selecionaveis.filter((t) => !selecionados.has(t.id) && t.relevante_bim && visivel(t));
+    const outros = selecionaveis.filter((t) => !selecionados.has(t.id) && !t.relevante_bim && visivel(t));
     append(lateral, [
-      grupo(`Selecionados (${escolhidos.length})`, escolhidos, "Nenhum tópico selecionado."),
+      grupo(
+        `Selecionados (${escolhidosVisiveis.length}${busca ? ` de ${escolhidos.length}` : ""})`,
+        escolhidosVisiveis,
+        busca ? "Nenhum tópico selecionado com essa busca." : "Nenhum tópico selecionado.",
+      ),
       sugeridos.length
         ? grupo(`Relevantes para BIM fora da seleção (${sugeridos.length})`, sugeridos, "")
         : null,
       outros.length
         ? h(
             "details",
-            { class: "revisao-grupo" },
+            { class: "revisao-grupo", open: busca.trim() !== "" },
             h("summary", null, `Demais tópicos (${outros.length})`),
             outros.map(item),
           )
         : null,
     ]);
     confirmar.disabled = escolhidos.length === 0;
-    confirmar.textContent = `Confirmar e gerar RI (${escolhidos.length} tópico(s))`;
+    confirmar.textContent = `Confirmar e gerar IR (${escolhidos.length} tópico(s))`;
     visualizador?.definirMarcas(marcas());
   };
 
@@ -151,7 +164,7 @@ export function abrirConfirmacaoTopicos(opcoes: Opcoes): void {
         ),
         h("button", { type: "button", class: "btn-icone", "aria-label": "Fechar", onclick: () => fechar() }, "×"),
       ),
-      h("div", { class: "revisao-pdf-corpo" }, host, h("aside", { class: "revisao-pdf-lateral" }, lateral)),
+      h("div", { class: "revisao-pdf-corpo" }, host, h("aside", { class: "revisao-pdf-lateral" }, h("div", { class: "revisao-busca" }, campo), lateral)),
       h(
         "div",
         { class: "revisao-pdf-rodape" },

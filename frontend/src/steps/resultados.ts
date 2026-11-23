@@ -28,6 +28,7 @@ import type {
   Requisito,
   StatusDecisao,
 } from "../types";
+import { barraFiltros, botaoLimpar, campoBusca, contador, contem, selectFiltro } from "../filtros";
 import { citacao } from "./eir";
 import { renderAbaEdital, type AbaEdital } from "./edital";
 import {
@@ -72,7 +73,14 @@ export function pedirFocoNoEdital(apontamentoId: string | null): void {
 }
 
 type Aba = "edital" | "modelo" | "manual" | "todos";
-const filtros = { tipo: "todos", severidade: "todas", busca: "", mostrarBaixa: false, aba: "" as Aba | "" };
+const filtros = {
+  tipo: "todos",
+  severidade: "todas",
+  decisao: "todas",
+  busca: "",
+  mostrarBaixa: false,
+  aba: "" as Aba | "",
+};
 const CHAVE_PERFIL = "editalcheck.perfil";
 const ABA_DO_PERFIL: Record<string, Aba> = {
   contratante: "edital",
@@ -256,9 +264,9 @@ export function renderResultados(ctx: Ctx): HTMLElement {
   const adicionarAoEir = async (apt: Apontamento) => {
     try {
       const novos = await api.adicionarDeLacuna(projetoId, vid, apt.id);
-      estado.eir = await api.ri(projetoId);
+      estado.eir = await api.ir(projetoId);
       estado.ids = null;
-      toast(`${novos.length} requisito(s) sugerido(s) adicionado(s) aos RI para revisão.`, "sucesso");
+      toast(`${novos.length} requisito(s) sugerido(s) adicionado(s) aos IR para revisão.`, "sucesso");
       ctx.irPara(3);
     } catch (e) {
       toast(mensagemErro(e), "erro");
@@ -328,22 +336,45 @@ export function renderResultados(ctx: Ctx): HTMLElement {
       desenharLista();
     },
   );
-  const busca = h("input", { type: "search", placeholder: "Buscar no título…", "aria-label": "Buscar apontamentos" });
-  busca.value = filtros.busca;
-  busca.addEventListener("input", () => {
-    filtros.busca = busca.value;
-    desenharLista();
-  });
+  const selectDecisao = selectFiltro(
+    "Decisão",
+    [["todas", "Todas as decisões"], ...Object.entries(DECISAO)],
+    filtros.decisao,
+    (v) => {
+      filtros.decisao = v;
+      desenharLista();
+    },
+  );
+  const busca = campoBusca(
+    "Buscar por ID, título, como agir, página, elemento ou GUID",
+    filtros.busca,
+    (termo) => {
+      filtros.busca = termo;
+      desenharLista();
+    },
+  );
   const contagem = h("span", { class: "texto-suave" });
+  const decisaoDe = (a: Apontamento) => decisoes.get(a.id)?.status ?? "pendente";
+  const textoBusca = (a: Apontamento): string[] => [
+    a.id,
+    a.titulo,
+    a.como_agir,
+    a.detalhe,
+    a.classe_ifc ?? "",
+    a.requisito_id ?? "",
+    rotulo(TIPO_APONTAMENTO, a.tipo),
+    ...a.evidencias_edital.map((e) => `p. ${e.pagina} p.${e.pagina} ${e.trecho}`),
+    ...a.elementos.map((e) => [e.global_id, e.nome, e.nome_longo, e.classe].filter(Boolean).join(" ")),
+  ];
 
   const desenharLista = () => {
     limpar(listaApts);
-    const termo = filtros.busca.trim().toLowerCase();
     const filtrados = relatorio.apontamentos
       .filter((a) => naAba(a, filtros.aba || "todos"))
       .filter((a) => filtros.tipo === "todos" || a.tipo === filtros.tipo)
       .filter((a) => filtros.severidade === "todas" || a.severidade === filtros.severidade)
-      .filter((a) => !termo || a.titulo.toLowerCase().includes(termo) || a.id.toLowerCase().includes(termo))
+      .filter((a) => filtros.decisao === "todas" || decisaoDe(a) === filtros.decisao)
+      .filter((a) => contem(filtros.busca, ...textoBusca(a)))
       .sort(
         (a, b) =>
           (ORDEM_SEVERIDADE[a.severidade] ?? 9) - (ORDEM_SEVERIDADE[b.severidade] ?? 9) || a.id.localeCompare(b.id),
@@ -675,7 +706,20 @@ export function renderResultados(ctx: Ctx): HTMLElement {
         contagem,
       ),
       abas,
-      h("div", { class: "barra-ferramentas" }, selectTipo, selectSeveridade, busca),
+      barraFiltros(
+        busca,
+        selectTipo,
+        selectSeveridade,
+        selectDecisao,
+        botaoLimpar(() => {
+          Object.assign(filtros, { tipo: "todos", severidade: "todas", decisao: "todas", busca: "" });
+          busca.value = "";
+          selectTipo.value = "todos";
+          selectSeveridade.value = "todas";
+          selectDecisao.value = "todas";
+          desenharLista();
+        }),
+      ),
       listaApts,
     ),
     secoesComplementares(relatorio),
@@ -683,7 +727,7 @@ export function renderResultados(ctx: Ctx): HTMLElement {
       "div",
       { class: "acoes" },
       botao("← Verificação", () => ctx.irPara(5), "fantasma"),
-      botao("Revisar os RI", () => ctx.irPara(3), "fantasma"),
+      botao("Revisar os IR", () => ctx.irPara(3), "fantasma"),
     ),
   ]);
   append(secao, [
@@ -734,7 +778,7 @@ function cabecalhoResultados(relatorio: Relatorio): HTMLElement {
         ),
         relatorio.sem_modelo ? null : linkDownload("BCF", urls.bcf(vid)),
         relatorio.sem_modelo ? null : linkDownload("IDS", urls.idsXml(projetoId)),
-        linkDownload("RI (.xlsx)", urls.riXlsx(projetoId)),
+        linkDownload("IR (.xlsx)", urls.irXlsx(projetoId)),
         linkDownload("JSON", urls.relatorioJson(vid)),
       ),
     ));
@@ -753,22 +797,6 @@ function naAba(apt: Apontamento, aba: Aba): boolean {
     default:
       return true;
   }
-}
-
-function selectFiltro(
-  rotuloTexto: string,
-  opcoes: [string, string][],
-  atual: string,
-  aoMudar: (v: string) => void,
-): HTMLSelectElement {
-  const sel = h(
-    "select",
-    { "aria-label": rotuloTexto },
-    opcoes.map(([valor, texto]) => h("option", { value: valor }, texto)),
-  );
-  sel.value = opcoes.some(([v]) => v === atual) ? atual : opcoes[0][0];
-  sel.addEventListener("change", () => aoMudar(sel.value));
-  return sel;
 }
 
 function painelIndicadores(r: Relatorio): HTMLElement {
@@ -1096,7 +1124,7 @@ function detalheApontamento(
       ? h(
           "div",
           { class: "acoes" },
-          botao("Adicionar aos RI", () => acoes.adicionarAoEir(), "primario", {
+          botao("Adicionar aos IR", () => acoes.adicionarAoEir(), "primario", {
             title: "Cria requisitos sugeridos e volta à revisão dos requisitos de informação",
           }),
         )
@@ -1177,53 +1205,114 @@ function detalheElemento(guid: string, indices: Indices, abrir: (apt: Apontament
           { class: "texto-suave" },
           estadoEl === "conforme"
             ? "O elemento atende a todos os requisitos do IDS aplicáveis a ele."
-            : "Nenhum requisito de informação (RI) se aplica a este elemento.",
+            : "Nenhum requisito de informação (IR) se aplica a este elemento.",
         ),
+  );
+}
+
+interface LinhaFiltravel {
+  el: HTMLElement;
+  texto: (string | null | undefined)[];
+  grupo: string;
+}
+
+/** Busca e filtro por grupo de cada tabela complementar, mantidos entre redesenhos. */
+const filtrosTabelas = new Map<string, { busca: string; grupo: string }>();
+
+function filtroDeTabela(
+  chave: string,
+  linhas: LinhaFiltravel[],
+  placeholder: string,
+  grupos: [string, string][],
+): HTMLElement | null {
+  if (linhas.length < 2) return null;
+  const estado = filtrosTabelas.get(chave) ?? { busca: "", grupo: "" };
+  filtrosTabelas.set(chave, estado);
+  const contagem = contador();
+  const aplicar = () => {
+    let visiveis = 0;
+    for (const linha of linhas) {
+      linha.el.hidden = (estado.grupo !== "" && linha.grupo !== estado.grupo) || !contem(estado.busca, ...linha.texto);
+      if (!linha.el.hidden) visiveis += 1;
+    }
+    contagem.definir(visiveis, linhas.length);
+  };
+  aplicar();
+  return barraFiltros(
+    campoBusca(placeholder, estado.busca, (termo) => {
+      estado.busca = termo;
+      aplicar();
+    }),
+    selectFiltro("Filtrar", [["", "Todos"], ...grupos], estado.grupo, (valor) => {
+      estado.grupo = valor;
+      aplicar();
+    }),
+    h("span", { class: "espaco" }),
+    contagem.el,
   );
 }
 
 function secoesComplementares(r: Relatorio): HTMLElement {
   const itens = new Map(r.itens_checklist.map((i) => [i.id, i]));
+  const linhasChecklist: LinhaFiltravel[] = r.checklist.map((res) => {
+    const item = itens.get(res.item_id);
+    return {
+      grupo: res.status,
+      texto: [res.item_id, item?.item, res.justificativa, res.evidencia?.trecho, rotulo(STATUS_CHECKLIST, res.status)],
+      el: h(
+        "tr",
+        null,
+        h("td", null, h("strong", null, res.item_id), " ", item?.item ?? ""),
+        h("td", null, item?.critico ? badge("Sim", "alta") : "Não"),
+        h("td", null, badge(rotulo(STATUS_CHECKLIST, res.status), VARIANTE_CHECKLIST[res.status] ?? "neutro")),
+        h(
+          "td",
+          { class: "col-evidencia" },
+          res.evidencia ? evidenciaBloco(res.evidencia) : h("span", { class: "texto-suave" }, res.justificativa || "—"),
+        ),
+        h("td", null, res.avaliado_por === "llm" ? "IA (conferida)" : "Regras"),
+      ),
+    };
+  });
   const checklist = h(
     "details",
     { class: "cartao detalhes-cartao" },
     h("summary", null, h("strong", null, "Checklist de itens mínimos do edital"), ` · ${r.checklist.length} itens`),
     r.checklist.length
-      ? h(
-          "div",
-          { class: "tabela-rolagem" },
+      ? [
+          filtroDeTabela("checklist", linhasChecklist, "Buscar item da checklist", Object.entries(STATUS_CHECKLIST)),
           h(
-            "table",
-            { class: "tabela" },
+            "div",
+            { class: "tabela-rolagem" },
             h(
-              "thead",
-              null,
-              h("tr", null, h("th", null, "Item"), h("th", null, "Crítico"), h("th", null, "Status"), h("th", null, "Evidência"), h("th", null, "Avaliado por")),
-            ),
-            h(
-              "tbody",
-              null,
-              r.checklist.map((res) => {
-                const item = itens.get(res.item_id);
-                return h(
-                  "tr",
-                  null,
-                  h("td", null, h("strong", null, res.item_id), " ", item?.item ?? ""),
-                  h("td", null, item?.critico ? badge("Sim", "alta") : "Não"),
-                  h("td", null, badge(rotulo(STATUS_CHECKLIST, res.status), VARIANTE_CHECKLIST[res.status] ?? "neutro")),
-                  h(
-                    "td",
-                    { class: "col-evidencia" },
-                    res.evidencia ? evidenciaBloco(res.evidencia) : h("span", { class: "texto-suave" }, res.justificativa || "—"),
-                  ),
-                  h("td", null, res.avaliado_por === "llm" ? "IA (conferida)" : "Regras"),
-                );
-              }),
+              "table",
+              { class: "tabela lista-filtrada" },
+              h(
+                "thead",
+                null,
+                h("tr", null, h("th", null, "Item"), h("th", null, "Crítico"), h("th", null, "Status"), h("th", null, "Evidência"), h("th", null, "Avaliado por")),
+              ),
+              h("tbody", null, linhasChecklist.map((l) => l.el)),
             ),
           ),
-        )
+        ]
       : vazio("Checklist não avaliada."),
   );
+
+  const linhasCobertura: LinhaFiltravel[] = [...(r.cobertura?.classes ?? [])]
+    .sort((a, b) => Number(a.coberta) - Number(b.coberta) || b.contagem - a.contagem)
+    .map((c) => ({
+      grupo: c.coberta ? "coberta" : "lacuna",
+      texto: [c.classe, c.requisitos.join(" ")],
+      el: h(
+        "tr",
+        null,
+        h("td", null, h("code", null, c.classe)),
+        h("td", { class: "num" }, num(c.contagem)),
+        h("td", null, c.coberta ? badge("Sim", "sucesso") : badge("Lacuna", "alta")),
+        h("td", null, c.requisitos.join(", ") || "—"),
+      ),
+    }));
   const cobertura = h(
     "details",
     { class: "cartao detalhes-cartao" },
@@ -1233,70 +1322,71 @@ function secoesComplementares(r: Relatorio): HTMLElement {
       h("strong", null, "Cobertura do edital por classe IFC"),
       r.cobertura ? ` · ${pct(r.cobertura.percentual)}` : "",
     ),
-    r.cobertura?.classes.length
-      ? h(
-          "div",
-          { class: "tabela-rolagem" },
+    linhasCobertura.length
+      ? [
+          filtroDeTabela("cobertura", linhasCobertura, "Buscar classe IFC ou requisito", [
+            ["coberta", "Cobertas"],
+            ["lacuna", "Lacunas"],
+          ]),
           h(
-            "table",
-            { class: "tabela compacta" },
-            h("thead", null, h("tr", null, h("th", null, "Classe"), h("th", { class: "num" }, "Elementos"), h("th", null, "Coberta"), h("th", null, "Requisitos"))),
+            "div",
+            { class: "tabela-rolagem" },
             h(
-              "tbody",
-              null,
-              [...r.cobertura.classes]
-                .sort((a, b) => Number(a.coberta) - Number(b.coberta) || b.contagem - a.contagem)
-                .map((c) =>
-                  h(
-                    "tr",
-                    null,
-                    h("td", null, h("code", null, c.classe)),
-                    h("td", { class: "num" }, num(c.contagem)),
-                    h("td", null, c.coberta ? badge("Sim", "sucesso") : badge("Lacuna", "alta")),
-                    h("td", null, c.requisitos.join(", ") || "—"),
-                  ),
-                ),
+              "table",
+              { class: "tabela compacta lista-filtrada" },
+              h("thead", null, h("tr", null, h("th", null, "Classe"), h("th", { class: "num" }, "Elementos"), h("th", null, "Coberta"), h("th", null, "Requisitos"))),
+              h("tbody", null, linhasCobertura.map((l) => l.el)),
             ),
           ),
-        )
+        ]
       : vazio("Cobertura não calculada."),
   );
+
+  const linhasIds: LinhaFiltravel[] = r.resultados_ids.map((res) => {
+    const grupo = res.aplicaveis === 0 ? "sem_elementos" : res.status ? "aprovada" : "reprovada";
+    return {
+      grupo,
+      texto: [res.nome_especificacao],
+      el: h(
+        "tr",
+        null,
+        h("td", null, res.nome_especificacao),
+        h("td", { class: "num" }, num(res.aplicaveis)),
+        h("td", { class: "num" }, num(res.aprovados)),
+        h(
+          "td",
+          null,
+          grupo === "sem_elementos"
+            ? badge("Sem elementos", "neutro")
+            : grupo === "aprovada"
+              ? badge("Aprovada", "sucesso")
+              : badge("Reprovada", "alta"),
+        ),
+      ),
+    };
+  });
   const ids = h(
     "details",
     { class: "cartao detalhes-cartao" },
     h("summary", null, h("strong", null, "Resultados do IDS por especificação"), ` · ${r.resultados_ids.length}`),
-    r.resultados_ids.length
-      ? h(
-          "div",
-          { class: "tabela-rolagem" },
+    linhasIds.length
+      ? [
+          filtroDeTabela("ids", linhasIds, "Buscar especificação", [
+            ["reprovada", "Só reprovadas"],
+            ["aprovada", "Aprovadas"],
+            ["sem_elementos", "Sem elementos"],
+          ]),
           h(
-            "table",
-            { class: "tabela compacta" },
-            h("thead", null, h("tr", null, h("th", null, "Especificação"), h("th", { class: "num" }, "Aplicáveis"), h("th", { class: "num" }, "Aprovados"), h("th", null, "Status"))),
+            "div",
+            { class: "tabela-rolagem" },
             h(
-              "tbody",
-              null,
-              r.resultados_ids.map((res) =>
-                h(
-                  "tr",
-                  null,
-                  h("td", null, res.nome_especificacao),
-                  h("td", { class: "num" }, num(res.aplicaveis)),
-                  h("td", { class: "num" }, num(res.aprovados)),
-                  h(
-                    "td",
-                    null,
-                    res.aplicaveis === 0
-                      ? badge("Sem elementos", "neutro")
-                      : res.status
-                        ? badge("Aprovada", "sucesso")
-                        : badge("Reprovada", "alta"),
-                  ),
-                ),
-              ),
+              "table",
+              { class: "tabela compacta lista-filtrada" },
+              h("thead", null, h("tr", null, h("th", null, "Especificação"), h("th", { class: "num" }, "Aplicáveis"), h("th", { class: "num" }, "Aprovados"), h("th", null, "Status"))),
+              h("tbody", null, linhasIds.map((l) => l.el)),
             ),
           ),
-        )
+        ]
       : vazio("Nenhuma especificação IDS executada."),
   );
   return h(
@@ -1313,6 +1403,29 @@ function secoesComplementares(r: Relatorio): HTMLElement {
 function blocoLicoesResultado(r: Relatorio): HTMLElement | null {
   if (!r.licoes.length) return null;
   const porId = new Map(r.verificacoes_licoes.map((v) => [v.licao_id, v]));
+  const linhas: LinhaFiltravel[] = r.licoes.map((l) => {
+    const v = porId.get(l.id);
+    const grupo = !v ? "nao_avaliada" : v.explicita ? "explicita" : "ausente";
+    return {
+      grupo,
+      texto: [l.id, l.titulo, l.regra, l.documento],
+      el: h(
+        "tr",
+        null,
+        h("td", null, badge(l.id, "licao"), " ", l.titulo),
+        h("td", null, l.regra, h("small", { class: "texto-suave" }, ` (${l.documento}, p. ${l.evidencia.pagina})`)),
+        h(
+          "td",
+          null,
+          !v
+            ? badge("Não avaliada", "neutro")
+            : v.explicita
+              ? [badge("Explícita", "sucesso"), v.evidencia ? h("small", null, ` p. ${v.evidencia.pagina}`) : null]
+              : badge("Ausente", "alta"),
+        ),
+      ),
+    };
+  });
   return h(
     "details",
     { class: "cartao detalhes-cartao", open: true },
@@ -1322,35 +1435,19 @@ function blocoLicoesResultado(r: Relatorio): HTMLElement | null {
       h("strong", null, "Lições aprendidas"),
       ` · ${r.indicadores.licoes_nao_explicitas} de ${r.licoes.length} ausentes do edital`,
     ),
+    filtroDeTabela("licoes", linhas, "Buscar lição aprendida", [
+      ["ausente", "Ausentes do edital"],
+      ["explicita", "Explícitas no edital"],
+      ["nao_avaliada", "Não avaliadas"],
+    ]),
     h(
       "div",
       { class: "tabela-rolagem" },
       h(
         "table",
-        { class: "tabela compacta" },
+        { class: "tabela compacta lista-filtrada" },
         h("thead", null, h("tr", null, h("th", null, "Lição"), h("th", null, "Regra"), h("th", null, "No edital?"))),
-        h(
-          "tbody",
-          null,
-          r.licoes.map((l) => {
-            const v = porId.get(l.id);
-            return h(
-              "tr",
-              null,
-              h("td", null, badge(l.id, "licao"), " ", l.titulo),
-              h("td", null, l.regra, h("small", { class: "texto-suave" }, ` (${l.documento}, p. ${l.evidencia.pagina})`)),
-              h(
-                "td",
-                null,
-                !v
-                  ? badge("Não avaliada", "neutro")
-                  : v.explicita
-                    ? [badge("Explícita", "sucesso"), v.evidencia ? h("small", null, ` p. ${v.evidencia.pagina}`) : null]
-                    : badge("Ausente", "alta"),
-              ),
-            );
-          }),
-        ),
+        h("tbody", null, linhas.map((l) => l.el)),
       ),
     ),
   );

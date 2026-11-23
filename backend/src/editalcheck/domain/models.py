@@ -38,6 +38,32 @@ class Cardinalidade(StrEnum):
     PROIBIDA = "prohibited"
 
 
+class ItemChecagem(StrEnum):
+    """Item de checagem (disciplina) que classifica o requisito, como na planilha de IR."""
+
+    ILUM = "ILUM"
+    VENT = "VENT"
+    ELET = "ELET"
+    INCE = "INCE"
+    ACES = "ACES"
+    ACUS = "ACUS"
+    HIDR = "HIDR"
+    DADO = "DADO"
+    ACAB = "ACAB"
+    OPER = "OPER"
+    DIME = "DIME"
+    ESTR = "ESTR"
+
+
+class TipoVerificacao(StrEnum):
+    """Como o requisito é verificado no modelo."""
+
+    IDS = "ids"
+    IDS_SCRIPT = "ids_script"
+    SCRIPT = "script"
+    MANUAL = "manual"
+
+
 class TipoRestricao(StrEnum):
     VALOR = "valor"
     ENUMERACAO = "enumeracao"
@@ -160,10 +186,10 @@ class Evidencia:
     fonte: FonteEvidencia = FonteEvidencia.EDITAL
 
 
-# --------------------------------------------------------------------------- requisitos de informação (RI)
+# --------------------------------------------------------------------------- requisitos de informação (IR)
 #
 # No código, a classe ``Eir`` e os nomes ``eir`` representam os Requisitos de
-# Informação (RI). A sigla EIR saiu da interface por ser restrita demais.
+# Informação (IR). A sigla EIR saiu da interface por ser restrita demais.
 
 
 @dataclass(frozen=True)
@@ -199,6 +225,9 @@ class Requisito:
     avisos: tuple[str, ...] = ()
     marcos: tuple[str, ...] = ()  # IDs de MarcoEntrega; vazio = todos os marcos
     licao_id: str | None = None  # preenchido quando gerado_por == "licao"
+    ambientes: tuple[str, ...] = ()  # ex.: ("Plataformas", "Sala de baterias")
+    item_checagem: ItemChecagem | None = None
+    verificacao: TipoVerificacao | None = None
 
     @property
     def aprovado(self) -> bool:
@@ -369,6 +398,7 @@ class ContextoVocabulario:
         tuple[str, tuple[str, ...]], ...
     ] = ()  # (classe, (Pset.Prop,...))
     termos_bsdd: tuple[TermoDicionario, ...] = ()
+    ambientes_modelo: tuple[str, ...] = ()  # nomes dos IfcSpace do modelo
 
     def propriedade_oficial(self, pset: str, nome: str) -> PropriedadeOficial | None:
         for prop in self.propriedades_oficiais:
@@ -683,7 +713,7 @@ class Projeto:
     edital: Edital
     modelo: ModeloResumo
     topicos: tuple[Topico, ...] = ()
-    eir: Eir | None = None  # Requisitos de Informação (RI)
+    eir: Eir | None = None  # Requisitos de Informação (IR)
     ids_gerado: bool = False
     avisos: tuple[str, ...] = ()
     licoes: tuple[LicaoAprendida, ...] = ()

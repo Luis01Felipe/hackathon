@@ -6,8 +6,8 @@ Enums são serializados pelo valor em minúsculas (ex.: `"aprovado"`, `"nao_conf
 
 Erros: `{"detail": "mensagem em português"}` com status 400, 404, 409, 413 ou 422.
 
-**Nomenclatura.** A interface usa **requisitos de informação (RI)**. As rotas usam o prefixo `/ri`.
-As rotas antigas com `/eir` continuam aceitas, fora da documentação OpenAPI, para compatibilidade.
+**Nomenclatura.** A interface usa **requisitos de informação (IR)**. As rotas usam o prefixo `/ir`.
+As rotas antigas com `/ri` e `/eir` continuam aceitas, fora da documentação OpenAPI, para compatibilidade.
 No código, a entidade continua se chamando `Eir`.
 
 **Dados.** No modo `efemero` (padrão), projetos, arquivos e relatórios ficam só em memória.
@@ -90,7 +90,7 @@ Apaga o projeto, os arquivos e as verificações. `404` se já não existir.
 ```
 
 - Os tópicos formam uma árvore pelo `pai_id`. `agrupador: true` indica seção sem texto próprio.
-- Ao gerar os RI, um agrupador enviado em `topicos` é trocado pelos subtópicos dele.
+- Ao gerar os IR, um agrupador enviado em `topicos` é trocado pelos subtópicos dele.
 
 ### `GET /api/projetos/{id}/modelo.ifc` → IFC enviado (`404` sem modelo)
 
@@ -136,7 +136,7 @@ Lê os documentos e substitui as lições de documentos com o mesmo nome. Respos
 Corpo: `{"marcos": [{"id": "MAR-01", "nome": "Anteprojeto"}, {"nome": "Projeto executivo"}]}`.
 Substitui a lista (até 20). Marco sem `id` recebe um novo. Marcos removidos saem dos requisitos.
 
-## Requisitos de informação (RI)
+## Requisitos de informação (IR)
 
 `Requisito`:
 
@@ -150,7 +150,8 @@ Substitui a lista (até 20). Marco sem `id` recebe um novo. Marcos removidos sae
   "restricao": null, "cardinalidade": "required", "origem_vocabulario": "pset_oficial",
   "bsdd_uri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/FireRating",
   "status": "proposto", "sugerido_por_lacuna": false, "clausula": "5.1.1",
-  "gerado_por": "llm", "avisos": [], "marcos": [], "licao_id": null
+  "gerado_por": "llm", "avisos": [], "marcos": [], "licao_id": null,
+  "ambientes": ["Sala de baterias"], "item_checagem": "INCE", "verificacao": "ids"
 }
 ```
 
@@ -158,6 +159,10 @@ Substitui a lista (até 20). Marco sem `id` recebe um novo. Marcos removidos sae
 - `status`: `proposto | aprovado | editado | rejeitado`.
 - `gerado_por`: `llm | regras | usuario | lacuna | licao`. Requisitos de lição têm `licao_id`, evidência com `fonte: "licoes"` e um aviso: a regra não está no edital.
 - `marcos`: IDs de marcos em que o requisito vale. Lista vazia = todos os marcos.
+- `topico_id`: tópico de origem (`TOP-xx`). Requisitos de lição usam `LICOES`; os de lacuna, `LACUNA`.
+- `ambientes`: ambientes a que o requisito se aplica. A IA sugere, preferindo os nomes dos IfcSpace do modelo; sem IA, regras reconhecem expressões como "sala de baterias". Lista vazia = todo o tópico.
+- `item_checagem`: disciplina do requisito, como na planilha de IR: `ILUM | VENT | ELET | INCE | ACES | ACUS | HIDR | DADO | ACAB | OPER | DIME | ESTR | null`.
+- `verificacao`: `ids | ids_script | script | manual`. Só `ids` e `ids_script` entram no IDS. Fica coerente com `verificavel_por_ids` (salvaguarda S3).
 
 `EirResposta`:
 
@@ -166,13 +171,13 @@ Substitui a lista (até 20). Marco sem `id` recebe um novo. Marcos removidos sae
   "aprovado_por": null, "requisitos": [Requisito], "avisos": ["..."], "descartados": 1 }
 ```
 
-### `POST /api/projetos/{id}/ri`
+### `POST /api/projetos/{id}/ir`
 
-Corpo: `{"topicos": ["TOP-05", "TOP-06"]}`. Gera os RI dos tópicos e das lições aprendidas (síncrono).
+Corpo: `{"topicos": ["TOP-05", "TOP-06"]}`. Gera os IR dos tópicos e das lições aprendidas (síncrono).
 
-### `GET /api/projetos/{id}/ri` → `EirResposta` (`404` se ainda não gerados)
+### `GET /api/projetos/{id}/ir` → `EirResposta` (`404` se ainda não gerados)
 
-### `PATCH /api/projetos/{id}/ri/requisitos/{req_id}`
+### `PATCH /api/projetos/{id}/ir/requisitos/{req_id}`
 
 ```json
 { "acao": "aprovar" }
@@ -181,18 +186,25 @@ Corpo: `{"topicos": ["TOP-05", "TOP-06"]}`. Gera os RI dos tópicos e das liçõ
 { "acao": "editar", "campos": { "ifc_class": "IfcDoor", "marcos": ["MAR-03"] } }
 ```
 
-Campos editáveis: `descricao`, `ifc_class`, `predefined_type`, `faceta`, `pset`, `propriedade`, `tipo_dado`, `restricao`, `cardinalidade`, `verificavel_por_ids`, `motivo_nao_verificavel` e `marcos`.
-Em `editar`, só os campos enviados mudam e o status vira `editado`.
+Campos editáveis: `descricao`, `ifc_class`, `predefined_type`, `faceta`, `pset`, `propriedade`, `tipo_dado`, `restricao`, `cardinalidade`, `verificavel_por_ids`, `motivo_nao_verificavel`, `marcos`, `ambientes`, `item_checagem` e `verificacao`.
+Em `editar`, só os campos enviados mudam e o status vira `editado`. Ao enviar `verificacao`, o `verificavel_por_ids` passa a seguir o tipo escolhido.
 
-### `POST /api/projetos/{id}/ri/aprovar-todos`
+### `POST /api/projetos/{id}/ir/aprovar-todos`
 
 Corpo: `{"somente_verificaveis": true}`.
 
-### `POST /api/projetos/{id}/ri/requisitos` (ciclo fechado)
+### `POST /api/projetos/{id}/ir/requisitos` (ciclo fechado)
 
 Corpo: `{"verificacao_id": "v1x2", "apontamento_id": "APT-007"}`. Cria requisitos a partir de um apontamento `lacuna_cobertura`.
 
-### `GET /api/projetos/{id}/ri.xlsx` → planilha dos RI
+### `GET /api/projetos/{id}/ir.xlsx` → planilha dos IR
+
+Segue o template de IR adotado pelo time. Abas:
+
+- **Resumo:** contagens por tipo de verificação, resumo da matriz e metadados.
+- **Requisitos:** as 20 colunas do template, na ordem (ID, Escopo = tópico, Categorias = ambientes, Item de checagem, Descrição, Pág., Trecho literal, Verificação, Verificável por IDS, Motivo, Classe IFC, PredefinedType, Faceta IDS, Pset.Propriedade, Tipo de dado, Restrição, Cardinalidade, Origem do vocabulário, Aplica a todas do escopo, Status), seguidas de Cláusula, Marcos, Lição, URI bSDD, Gerado por e Fonte.
+- **Matriz:** ambiente × item de checagem ("Tem · 001, 008" ou "Sem requisito"). Requisitos rejeitados ficam fora.
+- **Categorias**, **Itens de checagem** e **Aceitação e qualidade**.
 
 ## IDS
 

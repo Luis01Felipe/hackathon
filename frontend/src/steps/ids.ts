@@ -1,12 +1,89 @@
 // Passo 4 — Geração do IDS a partir dos requisitos de informação aprovados (código, não LLM).
 import { api, urls } from "../api";
+import { barraFiltros, botaoLimpar, campoBusca, contador, contem, selectFiltro } from "../filtros";
+import { ITEM_CHECAGEM } from "../labels";
 import type { Ctx } from "../state";
-import type { VersaoIfc } from "../types";
+import type { Requisito, VersaoIfc } from "../types";
 import { badge, botao, carregando, erro, h, limpar, linkDownload, mensagemErro, num, vazio } from "../ui";
 import { metrica } from "./upload";
 
 /** Escolha de escopo e versão, mantida entre redesenhos da tela. */
 const escolha: { projeto: string | null; marco: string; versao: string } = { projeto: null, marco: "", versao: "" };
+
+/** Busca e filtros da lista de requisitos do escopo, mantidos entre redesenhos. */
+const filtros = { busca: "", item: "", classe: "" };
+
+function listaDoEscopo(requisitos: Requisito[]): HTMLElement {
+  const lista = h("ul", { class: "lista-compacta" });
+  const contagem = contador();
+  const desenhar = () => {
+    limpar(lista);
+    const visiveis = requisitos.filter(
+      (r) =>
+        (!filtros.item || r.item_checagem === filtros.item) &&
+        (!filtros.classe || r.ifc_class === filtros.classe) &&
+        contem(filtros.busca, r.id, r.descricao, r.ifc_class, r.pset, r.propriedade, r.ambientes.join(" ")),
+    );
+    contagem.definir(visiveis.length, requisitos.length);
+    if (!visiveis.length) {
+      lista.append(h("li", { class: "texto-suave" }, "Nenhum requisito com esses filtros."));
+      return;
+    }
+    for (const r of visiveis) {
+      lista.append(
+        h(
+          "li",
+          null,
+          h("strong", null, r.id),
+          r.item_checagem
+            ? [" ", badge(r.item_checagem, `item badge-item-${r.item_checagem.toLowerCase()}`, ITEM_CHECAGEM[r.item_checagem])]
+            : null,
+          " · ",
+          r.descricao,
+        ),
+      );
+    }
+  };
+  const classes = [...new Set(requisitos.map((r) => r.ifc_class).filter((c): c is string => Boolean(c)))].sort();
+  const itens = [...new Set(requisitos.map((r) => r.item_checagem).filter((i) => i !== null))].sort();
+  const mudar = (chave: keyof typeof filtros) => (valor: string) => {
+    filtros[chave] = valor;
+    desenhar();
+  };
+  const busca = campoBusca("Buscar requisito por ID, texto, classe ou ambiente", filtros.busca, mudar("busca"));
+  const selectItem = selectFiltro(
+    "Item de checagem",
+    [["", "Todos os itens de checagem"], ...itens.map((i) => [i, `${i} · ${ITEM_CHECAGEM[i]}`] as [string, string])],
+    filtros.item,
+    mudar("item"),
+  );
+  const selectClasse = selectFiltro(
+    "Classe IFC",
+    [["", "Todas as classes IFC"], ...classes.map((c) => [c, c] as [string, string])],
+    filtros.classe,
+    mudar("classe"),
+  );
+  desenhar();
+  return h(
+    "div",
+    null,
+    barraFiltros(
+      busca,
+      selectItem,
+      selectClasse,
+      botaoLimpar(() => {
+        Object.assign(filtros, { busca: "", item: "", classe: "" });
+        busca.value = "";
+        selectItem.value = "";
+        selectClasse.value = "";
+        desenhar();
+      }),
+      h("span", { class: "espaco" }),
+      contagem.el,
+    ),
+    lista,
+  );
+}
 
 export function renderIds(ctx: Ctx): HTMLElement {
   const { estado } = ctx;
@@ -29,7 +106,7 @@ export function renderIds(ctx: Ctx): HTMLElement {
   const projeto = estado.projeto;
   const eir = estado.eir;
   if (!projeto || !eir) {
-    secao.append(vazio("Gere e revise os requisitos de informação (RI) no passo 3."));
+    secao.append(vazio("Gere e revise os requisitos de informação (IR) no passo 3."));
     return secao;
   }
   const selectMarco = h(
@@ -153,16 +230,12 @@ export function renderIds(ctx: Ctx): HTMLElement {
         h("label", { class: "campo-inline", for: selectVersao.id }, "Versão IFC: ", selectVersao),
       ),
       paraIds.length
-        ? h(
-            "ul",
-            { class: "lista-compacta" },
-            paraIds.map((r) => h("li", null, h("strong", null, r.id), " · ", r.descricao)),
-          )
-        : h("div", { class: "alerta alerta-aviso" }, "Nenhum requisito aprovado e verificável neste escopo. Volte aos RI."),
+        ? listaDoEscopo(paraIds)
+        : h("div", { class: "alerta alerta-aviso" }, "Nenhum requisito aprovado e verificável neste escopo. Volte aos IR."),
       h(
         "div",
         { class: "acoes" },
-        botao("← Requisitos (RI)", () => ctx.irPara(3), "fantasma"),
+        botao("← Requisitos (IR)", () => ctx.irPara(3), "fantasma"),
         h("span", { class: "espaco" }),
         h(
           "button",

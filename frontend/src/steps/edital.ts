@@ -1,6 +1,7 @@
 // Resultados — aba "Edital": o PDF à esquerda, com um grifo por apontamento, e os ajustes à
 // direita. Clicar num ajuste leva ao trecho e abre o detalhe. Só leitura: o PDF não é editado.
 import { api, baixarArquivo, urls } from "../api";
+import { barraFiltros, campoBusca, contem } from "../filtros";
 import { DECISAO, ORIGEM_INCONSISTENCIA, QUEM_CORRIGE, SEVERIDADE, TIPO_APONTAMENTO, rotulo } from "../labels";
 import { VisualizadorPdf, type MarcaPdf } from "../pdf";
 import type { Apontamento, Decisao, LocalApontamento, Relatorio } from "../types";
@@ -8,7 +9,7 @@ import { append, badge, botao, botaoDownload, carregando, erro, h, limpar, mensa
 import { citacao } from "./eir";
 
 const ORDEM_SEVERIDADE: Record<string, number> = { alta: 0, media: 1, baixa: 2 };
-const filtros = { edital: true, modelo: true, severidade: "todas" };
+const filtros = { edital: true, modelo: true, severidade: "todas", busca: "" };
 
 export interface AbaEdital {
   elemento: HTMLElement;
@@ -40,7 +41,16 @@ export function renderAbaEdital(r: Relatorio, decisoes: Map<string, Decisao>, op
   const visiveis = () =>
     candidatos()
       .filter((a) => (a.origem === "edital" ? filtros.edital : filtros.modelo))
-      .filter((a) => filtros.severidade === "todas" || a.severidade === filtros.severidade);
+      .filter((a) => filtros.severidade === "todas" || a.severidade === filtros.severidade)
+      .filter((a) =>
+        contem(
+          filtros.busca,
+          a.id,
+          a.titulo,
+          a.como_agir,
+          ...a.evidencias_edital.map((e) => `p. ${e.pagina} ${e.trecho}`),
+        ),
+      );
 
   const marcas = (): MarcaPdf[] =>
     visiveis().map((a) => ({
@@ -230,9 +240,12 @@ export function renderAbaEdital(r: Relatorio, decisoes: Map<string, Decisao>, op
       "Clique num ajuste para ir ao trecho, ou num grifo para ver o ajuste. O PDF baixado traz o mesmo conteúdo: ",
       "sumário com links, grifos com notas e índice lateral.",
     ),
-    h(
-      "div",
-      { class: "barra-ferramentas" },
+    barraFiltros(
+      campoBusca("Buscar ajuste por ID, título, trecho ou página", filtros.busca, (termo) => {
+        filtros.busca = termo;
+        desenharLista();
+        visualizador?.definirMarcas(marcas());
+      }),
       caixa("Corrigir no edital", "edital"),
       r.sem_modelo ? null : caixa("Corrigir no modelo (na cláusula de origem)", "modelo"),
       severidade,

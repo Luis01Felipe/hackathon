@@ -24,6 +24,7 @@ from editalcheck.domain.models import (
     Destinatario,
     Edital,
     Evidencia,
+    ItemChecagem,
     ItemChecklist,
     Pagina,
     PropriedadeOficial,
@@ -31,6 +32,7 @@ from editalcheck.domain.models import (
     Severidade,
     TipoApontamento,
     TipoFaceta,
+    TipoVerificacao,
     Topico,
     TrechoVago,
 )
@@ -81,6 +83,9 @@ def test_extracao_do_eir_renderiza_o_prompt_e_converte_requisitos(tmp_path: Path
                         "pset": "Pset_DoorCommon",
                         "propriedade": "FireRating",
                         "tipo_dado": "IfcLabel",
+                        "ambientes": ["Sala de baterias", " "],
+                        "item_checagem": "INCE",
+                        "verificacao": "ids",
                     }
                 ]
             }
@@ -91,12 +96,17 @@ def test_extracao_do_eir_renderiza_o_prompt_e_converte_requisitos(tmp_path: Path
         classes_modelo=(ClasseModelo("IfcDoor", 16, True),),
         propriedades_oficiais=(PropriedadeOficial("Pset_DoorCommon", "FireRating", "IfcLabel"),),
         propriedades_por_classe=(("IfcDoor", ("Pset_DoorCommon.FireRating",)),),
+        ambientes_modelo=("Sala de baterias",),
     )
     requisitos = LlmRequirementExtractor(llm).extract(TOPICO, contexto)
     assert len(requisitos) == 1
     assert requisitos[0].topico_id == "TOP-02"
     assert requisitos[0].faceta == TipoFaceta.PROPRIEDADE
+    assert requisitos[0].ambientes == ("Sala de baterias",)
+    assert requisitos[0].item_checagem == ItemChecagem.INCE
+    assert requisitos[0].verificacao == TipoVerificacao.IDS
     prompt = cliente.prompts[0]
+    assert "## Ambientes do modelo\n- Sala de baterias" in prompt
     assert "schema IFC4" in prompt and "Classes no modelo (IFC4)" in prompt
     assert "Pset_DoorCommon.FireRating: IfcLabel" in prompt
     assert "5.1.1 Todas as portas" in prompt

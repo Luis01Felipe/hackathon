@@ -148,7 +148,7 @@ def de_resultados_ids(
                 ),
                 por_que=(
                     f"O {rotulo} exige essa informação. O requisito {requisito.id} foi aprovado "
-                    "nos requisitos de informação (RI) e a verificação IDS falhou nesses elementos."
+                    "nos requisitos de informação (IR) e a verificação IDS falhou nesses elementos."
                 ),
                 referencias=referencias_do_requisito(requisito),
                 classe_ifc=requisito.ifc_class,

@@ -1,15 +1,21 @@
-// Passo 3 — Revisão humana dos requisitos de informação (RI): aceitar, editar ou rejeitar
+// Passo 3 — Revisão humana dos requisitos de informação (IR): aceitar, editar ou rejeitar
 // cada requisito, cadastrar marcos de entrega e conferir as lições aprendidas.
 import { api, urls } from "../api";
+import { barraFiltros, botaoLimpar, campoBusca, contador, contem, selectFiltro } from "../filtros";
 import {
   CARDINALIDADE,
+  DESCRICAO_VERIFICACAO,
   FACETA,
+  ITEM_CHECAGEM,
   ORIGEM,
   STATUS_REQUISITO,
   TIPO_RESTRICAO,
+  TIPO_VERIFICACAO,
   descreverRestricao,
   mapeamento,
   rotulo,
+  verificacaoDe,
+  verificacaoEntraNoIds,
 } from "../labels";
 import type { Ctx } from "../state";
 import type {
@@ -18,11 +24,14 @@ import type {
   CamposEdicao,
   Evidencia,
   Faceta,
+  ItemChecagem,
   MarcoEntrega,
   ProjetoResumo,
   Requisito,
   Restricao,
   TipoRestricao,
+  TipoVerificacao,
+  Topico,
 } from "../types";
 import {
   abrirModal,
@@ -41,11 +50,28 @@ import {
 } from "../ui";
 
 interface FiltrosEir {
+  busca: string;
   status: string;
-  somenteNaoVerificaveis: boolean;
+  topico: string;
+  ambiente: string;
+  item: string;
+  verificacao: string;
+  origem: string;
 }
 
-const filtros: FiltrosEir = { status: "todos", somenteNaoVerificaveis: false };
+const TODOS = "todos";
+const SEM_AMBIENTE = "__sem_ambiente__";
+const FILTROS_PADRAO: FiltrosEir = {
+  busca: "",
+  status: TODOS,
+  topico: TODOS,
+  ambiente: TODOS,
+  item: TODOS,
+  verificacao: TODOS,
+  origem: TODOS,
+};
+const filtros: FiltrosEir = { ...FILTROS_PADRAO };
+const COLUNAS_TABELA = 8;
 
 const VARIANTE_STATUS: Record<string, string> = {
   proposto: "neutro",
@@ -60,6 +86,82 @@ const VARIANTE_ORIGEM: Record<string, string> = {
   customizado: "media",
 };
 
+export const VARIANTE_VERIFICACAO: Record<TipoVerificacao, string> = {
+  ids: "sucesso",
+  ids_script: "info",
+  script: "media",
+  manual: "neutro",
+};
+
+const TOPICOS_ESPECIAIS: Record<string, string> = {
+  LICOES: "Lições aprendidas",
+  LACUNA: "Sugerido por lacuna",
+};
+
+type OrigemRequisito = "edital" | "licao" | "lacuna";
+const ORIGEM_REQUISITO: Record<OrigemRequisito, string> = {
+  edital: "Do edital",
+  licao: "De lições aprendidas",
+  lacuna: "Sugeridos por lacuna",
+};
+
+function origemDe(req: Requisito): OrigemRequisito {
+  if (req.sugerido_por_lacuna) return "lacuna";
+  if (req.gerado_por === "licao") return "licao";
+  return "edital";
+}
+
+const aprovadoOuEditado = (r: Requisito) => r.status === "aprovado" || r.status === "editado";
+
+interface RotuloTopico {
+  numero: string;
+  titulo: string;
+  caminho: string;
+}
+
+/** Tópico de origem do requisito: número, título e caminho até a seção de nível 1. */
+export function rotuloTopico(topicoId: string, topicos: Topico[] | null): RotuloTopico {
+  const especial = TOPICOS_ESPECIAIS[topicoId];
+  if (especial) return { numero: "—", titulo: especial, caminho: especial };
+  const porId = new Map((topicos ?? []).map((t) => [t.id, t]));
+  const topico = porId.get(topicoId);
+  if (!topico) return { numero: topicoId, titulo: "", caminho: topicoId };
+  const cadeia: string[] = [];
+  for (let atual: Topico | undefined = topico; atual; atual = atual.pai_id ? porId.get(atual.pai_id) : undefined) {
+    cadeia.unshift(`${atual.numero} ${atual.titulo}`);
+  }
+  return { numero: topico.numero, titulo: topico.titulo, caminho: cadeia.join(" › ") };
+}
+
+function atende(req: Requisito, topicos: Topico[] | null): boolean {
+  const verificacao = verificacaoDe(req);
+  if (filtros.status === "aprovados" && !aprovadoOuEditado(req)) return false;
+  if (![TODOS, "aprovados"].includes(filtros.status) && req.status !== filtros.status) return false;
+  if (filtros.topico !== TODOS && req.topico_id !== filtros.topico) return false;
+  if (filtros.ambiente === SEM_AMBIENTE && req.ambientes.length) return false;
+  if (![TODOS, SEM_AMBIENTE].includes(filtros.ambiente) && !req.ambientes.includes(filtros.ambiente)) return false;
+  if (filtros.item !== TODOS && (req.item_checagem ?? "") !== filtros.item) return false;
+  if (filtros.verificacao === "entra_ids" && !verificacaoEntraNoIds(verificacao)) return false;
+  if (filtros.verificacao === "fora_ids" && verificacaoEntraNoIds(verificacao)) return false;
+  if (!["entra_ids", "fora_ids", TODOS].includes(filtros.verificacao) && verificacao !== filtros.verificacao) {
+    return false;
+  }
+  if (filtros.origem !== TODOS && origemDe(req) !== filtros.origem) return false;
+  const topico = rotuloTopico(req.topico_id, topicos);
+  return contem(
+    filtros.busca,
+    req.id,
+    req.descricao,
+    req.evidencia.trecho,
+    req.ifc_class,
+    req.pset,
+    req.propriedade,
+    req.ambientes.join(" "),
+    req.item_checagem ? `${req.item_checagem} ${ITEM_CHECAGEM[req.item_checagem]}` : null,
+    `${topico.numero} ${topico.titulo}`,
+  );
+}
+
 export function renderEir(ctx: Ctx): HTMLElement {
   const { estado } = ctx;
   const secao = h(
@@ -68,12 +170,12 @@ export function renderEir(ctx: Ctx): HTMLElement {
     h(
       "div",
       { class: "cabecalho-passo" },
-      h("h2", null, "3. Revise os requisitos de informação (RI)"),
+      h("h2", null, "3. Revise os requisitos de informação (IR)"),
       h(
         "p",
         null,
-        "Os RI são o contrato de dados da contratação: o que o modelo deve conter em cada entrega. ",
-        "Cada requisito mostra o trecho original do edital (ou da lição aprendida), conferido literalmente. ",
+        "Os IR (Information Requirements) são o contrato de dados da contratação: o que o modelo deve conter em cada entrega. ",
+        "Cada requisito mostra o tópico de origem, os ambientes, a disciplina e como será verificado. ",
         "Nenhum requisito vira IDS sem a sua aprovação.",
       ),
     ),
@@ -86,7 +188,7 @@ export function renderEir(ctx: Ctx): HTMLElement {
   if (!estado.eir) {
     secao.append(carregando("Carregando os requisitos de informação…"));
     api
-      .ri(projeto.id)
+      .ir(projeto.id)
       .then((eir) => {
         estado.eir = eir;
         ctx.atualizar();
@@ -97,27 +199,70 @@ export function renderEir(ctx: Ctx): HTMLElement {
       });
     return secao;
   }
+  if (!estado.topicos) {
+    // A coluna Tópico mostra número e título: busca os tópicos se a página abriu direto aqui.
+    api
+      .topicos(projeto.id)
+      .then((topicos) => {
+        estado.topicos = topicos;
+        ctx.atualizar();
+      })
+      .catch(() => undefined);
+  }
 
   const eir = estado.eir;
   const resumo = h("div", { class: "resumo-eir" });
+  const barra = h("div", null);
   const corpoTabela = h("tbody", null);
   const status = h("div", { class: "status-acao" });
+  const contagem = contador();
 
   const atualizarResumo = () => {
     limpar(resumo);
     const reqs = eir.requisitos;
     const contar = (f: (r: Requisito) => boolean) => reqs.filter(f).length;
-    const aprovados = contar((r) => r.status === "aprovado" || r.status === "editado");
-    const paraIds = contar((r) => (r.status === "aprovado" || r.status === "editado") && r.verificavel_por_ids);
+    const aprovados = contar(aprovadoOuEditado);
+    const paraIds = contar((r) => aprovadoOuEditado(r) && verificacaoEntraNoIds(verificacaoDe(r)));
     resumo.append(
-      chip("Requisitos", reqs.length),
-      chip("Propostos", contar((r) => r.status === "proposto")),
-      chip("Aprovados", aprovados, "sucesso"),
-      chip("Rejeitados", contar((r) => r.status === "rejeitado"), "alta"),
-      chip("Não verificáveis por IDS", contar((r) => !r.verificavel_por_ids), "media"),
-      chip("De lições aprendidas", contar((r) => r.gerado_por === "licao"), "licao"),
-      chip("Entram no IDS", paraIds, "info"),
+      chipFiltro("Requisitos", reqs.length, "neutro", {}),
+      chipFiltro("Propostos", contar((r) => r.status === "proposto"), "neutro", { status: "proposto" }),
+      chipFiltro("Aprovados", aprovados, "sucesso", { status: "aprovados" }),
+      chipFiltro("Rejeitados", contar((r) => r.status === "rejeitado"), "alta", { status: "rejeitado" }),
+      chipFiltro("Fora do IDS", contar((r) => !verificacaoEntraNoIds(verificacaoDe(r))), "media", {
+        verificacao: "fora_ids",
+      }),
+      chipFiltro("De lições aprendidas", contar((r) => origemDe(r) === "licao"), "licao", { origem: "licao" }),
+      chipFiltro("Entram no IDS", paraIds, "info", { status: "aprovados", verificacao: "entra_ids" }),
     );
+  };
+
+  /** Chip do resumo que aplica um filtro; clicar de novo (ou em "Requisitos") limpa. */
+  const chipFiltro = (texto: string, valor: number, variante: string, alvo: Partial<FiltrosEir>): HTMLElement => {
+    const chaves = Object.keys(alvo) as (keyof FiltrosEir)[];
+    const ativo =
+      chaves.length > 0 &&
+      (Object.keys(FILTROS_PADRAO) as (keyof FiltrosEir)[]).every((k) =>
+        k in alvo ? filtros[k] === alvo[k] : filtros[k] === FILTROS_PADRAO[k],
+      );
+    return h(
+      "button",
+      {
+        type: "button",
+        class: `chip chip-${variante} chip-filtro${ativo ? " chip-ativo" : ""}`,
+        "aria-pressed": ativo ? "true" : "false",
+        title: chaves.length ? `Filtrar: ${texto}` : "Mostrar todos",
+        onclick: () => aplicarFiltros(ativo ? {} : alvo),
+      },
+      h("strong", null, String(valor)),
+      h("span", null, texto),
+    );
+  };
+
+  const aplicarFiltros = (alvo: Partial<FiltrosEir>) => {
+    Object.assign(filtros, FILTROS_PADRAO, { busca: filtros.busca }, alvo);
+    desenharBarra();
+    atualizarResumo();
+    desenharLinhas();
   };
 
   const substituir = (req: Requisito) => {
@@ -130,6 +275,7 @@ export function renderEir(ctx: Ctx): HTMLElement {
   const agir = async (req: Requisito, acao: AcaoRequisito) => {
     try {
       substituir(await api.atualizarRequisito(projeto.id, req.id, acao));
+      if (acao.acao === "editar") desenharBarra();
       desenharLinhas();
       atualizarResumo();
     } catch (e) {
@@ -139,16 +285,90 @@ export function renderEir(ctx: Ctx): HTMLElement {
 
   const desenharLinhas = () => {
     limpar(corpoTabela);
-    const visiveis = eir.requisitos.filter((r) => {
-      if (filtros.somenteNaoVerificaveis && r.verificavel_por_ids) return false;
-      if (filtros.status !== "todos" && r.status !== filtros.status) return false;
-      return true;
-    });
+    const visiveis = eir.requisitos.filter((r) => atende(r, estado.topicos));
+    contagem.definir(visiveis.length, eir.requisitos.length);
     if (!visiveis.length) {
-      corpoTabela.append(h("tr", null, h("td", { colspan: "6" }, vazio("Nenhum requisito com esses filtros."))));
+      corpoTabela.append(
+        h("tr", null, h("td", { colspan: String(COLUNAS_TABELA) }, vazio("Nenhum requisito com esses filtros."))),
+      );
       return;
     }
-    for (const req of visiveis) corpoTabela.append(linhaRequisito(req, agir, (r) => editar(r), marcosPorId()));
+    const marcos = marcosPorId();
+    for (const req of visiveis) {
+      corpoTabela.append(linhaRequisito(req, estado.topicos, agir, (r) => editar(r), marcos));
+    }
+  };
+
+  const ambientesConhecidos = () =>
+    [...new Set(eir.requisitos.flatMap((r) => r.ambientes))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+
+  const desenharBarra = () => {
+    limpar(barra);
+    const mudar = (chave: keyof FiltrosEir) => (valor: string) => {
+      filtros[chave] = valor;
+      atualizarResumo();
+      desenharLinhas();
+    };
+    const topicosUsados = [...new Set(eir.requisitos.map((r) => r.topico_id))].map((id) => {
+      const t = rotuloTopico(id, estado.topicos);
+      return [id, t.numero === "—" ? t.titulo : `${t.numero} ${t.titulo}`.trim()] as [string, string];
+    });
+    barra.append(
+      barraFiltros(
+        campoBusca("Buscar por ID, texto, classe IFC, ambiente ou tópico", filtros.busca, mudar("busca")),
+        selectFiltro(
+          "Status",
+          [[TODOS, "Todos os status"], ["aprovados", "Aprovados e editados"], ...Object.entries(STATUS_REQUISITO)],
+          filtros.status,
+          mudar("status"),
+        ),
+        selectFiltro("Tópico", [[TODOS, "Todos os tópicos"], ...topicosUsados], filtros.topico, mudar("topico")),
+        selectFiltro(
+          "Ambiente",
+          [
+            [TODOS, "Todos os ambientes"],
+            [SEM_AMBIENTE, "Sem ambiente (todo o tópico)"],
+            ...ambientesConhecidos().map((a) => [a, a] as [string, string]),
+          ],
+          filtros.ambiente,
+          mudar("ambiente"),
+        ),
+        selectFiltro(
+          "Item de checagem",
+          [
+            [TODOS, "Todos os itens de checagem"],
+            ...Object.entries(ITEM_CHECAGEM).map(([sigla, nome]) => [sigla, `${sigla} · ${nome}`] as [string, string]),
+          ],
+          filtros.item,
+          mudar("item"),
+        ),
+        selectFiltro(
+          "Verificação",
+          [
+            [TODOS, "Toda verificação"],
+            ["entra_ids", "Entram no IDS"],
+            ["fora_ids", "Fora do IDS"],
+            ...Object.entries(TIPO_VERIFICACAO),
+          ],
+          filtros.verificacao,
+          mudar("verificacao"),
+        ),
+        selectFiltro("Origem", [[TODOS, "Toda origem"], ...Object.entries(ORIGEM_REQUISITO)], filtros.origem, mudar("origem")),
+        botaoLimpar(() => {
+          Object.assign(filtros, FILTROS_PADRAO);
+          desenharBarra();
+          atualizarResumo();
+          desenharLinhas();
+        }),
+        h("span", { class: "espaco" }),
+        contagem.el,
+      ),
+      h(
+        "datalist",
+        { id: "lista-ambientes" },
+        ambientesConhecidos().map((a) => h("option", { value: a })),
+      ),
+    );
   };
 
   const marcosPorId = () => new Map(projeto.marcos.map((m) => [m.id, m.nome]));
@@ -164,30 +384,12 @@ export function renderEir(ctx: Ctx): HTMLElement {
       editorMarcos(projeto, async (marcos) => {
         projeto.marcos = marcos;
         estado.ids = null;
-        estado.eir = await api.ri(projeto.id);
+        estado.eir = await api.ir(projeto.id);
         ctx.atualizar();
       }),
     );
   };
   desenharMarcos();
-
-  const selectStatus = h(
-    "select",
-    { "aria-label": "Filtrar por status" },
-    h("option", { value: "todos" }, "Todos os status"),
-    Object.entries(STATUS_REQUISITO).map(([valor, texto]) => h("option", { value: valor }, texto)),
-  );
-  selectStatus.value = filtros.status;
-  selectStatus.addEventListener("change", () => {
-    filtros.status = selectStatus.value;
-    desenharLinhas();
-  });
-  const cbNaoVerificaveis = h("input", { type: "checkbox", id: "filtro-nao-verificaveis" });
-  cbNaoVerificaveis.checked = filtros.somenteNaoVerificaveis;
-  cbNaoVerificaveis.addEventListener("change", () => {
-    filtros.somenteNaoVerificaveis = cbNaoVerificaveis.checked;
-    desenharLinhas();
-  });
 
   const aprovarTodos = async () => {
     limpar(status);
@@ -204,8 +406,7 @@ export function renderEir(ctx: Ctx): HTMLElement {
     }
   };
 
-  const podeGerarIds = () =>
-    eir.requisitos.some((r) => (r.status === "aprovado" || r.status === "editado") && r.verificavel_por_ids);
+  const podeGerarIds = () => eir.requisitos.some((r) => aprovadoOuEditado(r) && r.verificavel_por_ids);
 
   append(secao, [
     resumo,
@@ -220,14 +421,13 @@ export function renderEir(ctx: Ctx): HTMLElement {
           "A citação do edital não conferiu literalmente com o texto da página (salvaguarda S2).",
         )
       : null,
+    barra,
     h(
       "div",
       { class: "barra-ferramentas" },
-      selectStatus,
-      h("label", { class: "check-inline", for: cbNaoVerificaveis.id }, cbNaoVerificaveis, "Somente não verificáveis"),
       h("span", { class: "espaco" }),
       botao("Aceitar todos os verificáveis", () => void aprovarTodos(), "sucesso"),
-      linkDownload("Baixar RI (.xlsx)", urls.riXlsx(projeto.id)),
+      linkDownload("Baixar IR (.xlsx)", urls.irXlsx(projeto.id)),
     ),
     status,
     h(
@@ -244,9 +444,11 @@ export function renderEir(ctx: Ctx): HTMLElement {
             null,
             h("th", null, "ID"),
             h("th", null, "Requisito e trecho de origem"),
+            h("th", null, "Tópico"),
+            h("th", null, "Ambiente"),
+            h("th", null, "Item de checagem"),
             h("th", null, "Mapeamento IFC"),
-            h("th", null, "Vocabulário"),
-            h("th", null, "Verificável por IDS"),
+            h("th", null, "Verificação"),
             h("th", null, "Ações"),
           ),
         ),
@@ -275,13 +477,10 @@ export function renderEir(ctx: Ctx): HTMLElement {
       ),
     ),
   ]);
+  desenharBarra();
   atualizarResumo();
   desenharLinhas();
   return secao;
-}
-
-function chip(rotuloTexto: string, valor: number, variante = "neutro"): HTMLElement {
-  return h("div", { class: `chip chip-${variante}` }, h("strong", null, String(valor)), h("span", null, rotuloTexto));
 }
 
 export function citacao(ev: Evidencia, clausula?: string | null): string {
@@ -291,12 +490,15 @@ export function citacao(ev: Evidencia, clausula?: string | null): string {
 
 function linhaRequisito(
   req: Requisito,
+  topicos: Topico[] | null,
   agir: (req: Requisito, acao: AcaoRequisito) => Promise<void>,
   editar: (req: Requisito) => void,
   marcos: Map<string, string>,
 ): HTMLElement {
-  const aprovado = req.status === "aprovado" || req.status === "editado";
+  const aprovado = aprovadoOuEditado(req);
   const restricao = descreverRestricao(req.restricao);
+  const topico = rotuloTopico(req.topico_id, topicos);
+  const verificacao = verificacaoDe(req);
   return h(
     "tr",
     { class: `linha-req status-${req.status}` },
@@ -332,6 +534,29 @@ function linhaRequisito(
     ),
     h(
       "td",
+      { class: "col-topico", title: topico.caminho },
+      topico.numero !== "—" ? h("strong", { class: "ir-topico-numero" }, topico.numero) : null,
+      h("span", { class: "ir-topico-titulo" }, topico.titulo || "—"),
+    ),
+    h(
+      "td",
+      { class: "col-ambiente" },
+      req.ambientes.length
+        ? req.ambientes.map((a) => badge(a, "ambiente", "Ambiente"))
+        : h("small", { class: "texto-suave" }, "Todo o tópico"),
+    ),
+    h(
+      "td",
+      { class: "col-item" },
+      req.item_checagem
+        ? [
+            badge(req.item_checagem, `item badge-item-${req.item_checagem.toLowerCase()}`, ITEM_CHECAGEM[req.item_checagem]),
+            h("small", { class: "texto-suave item-nome" }, ITEM_CHECAGEM[req.item_checagem]),
+          ]
+        : h("small", { class: "texto-suave" }, "Sem classificação"),
+    ),
+    h(
+      "td",
       { class: "col-map" },
       h("code", { class: "mapa" }, mapeamento(req)),
       h(
@@ -342,21 +567,21 @@ function linhaRequisito(
         restricao ? h("span", null, restricao) : null,
         h("span", null, rotulo(CARDINALIDADE, req.cardinalidade)),
       ),
-    ),
-    h(
-      "td",
-      { class: "col-voc" },
-      req.origem_vocabulario
-        ? badge(rotulo(ORIGEM, req.origem_vocabulario), VARIANTE_ORIGEM[req.origem_vocabulario] ?? "neutro")
-        : h("span", { class: "texto-suave" }, "—"),
-      req.bsdd_uri
-        ? h("a", { href: req.bsdd_uri, target: "_blank", rel: "noopener", class: "link-bsdd" }, "ver no bSDD")
-        : null,
+      h(
+        "div",
+        { class: "mapa-vocabulario" },
+        req.origem_vocabulario
+          ? badge(rotulo(ORIGEM, req.origem_vocabulario), VARIANTE_ORIGEM[req.origem_vocabulario] ?? "neutro", "Origem do vocabulário")
+          : null,
+        req.bsdd_uri
+          ? h("a", { href: req.bsdd_uri, target: "_blank", rel: "noopener", class: "link-bsdd" }, "ver no bSDD")
+          : null,
+      ),
     ),
     h(
       "td",
       { class: "col-verif" },
-      req.verificavel_por_ids ? badge("Sim", "sucesso") : badge("Não · manual", "media"),
+      badge(TIPO_VERIFICACAO[verificacao], VARIANTE_VERIFICACAO[verificacao], DESCRICAO_VERIFICACAO[verificacao]),
       !req.verificavel_por_ids && req.motivo_nao_verificavel
         ? h("small", { class: "motivo" }, req.motivo_nao_verificavel)
         : null,
@@ -424,8 +649,27 @@ function abrirEdicao(
   const maximo = h("input", { type: "number", step: "any", id: "ed-max" });
   maximo.value = req.restricao?.maximo?.toString() ?? "";
 
-  const verificavel = h("input", { type: "checkbox", id: "ed-verif" });
-  verificavel.checked = req.verificavel_por_ids;
+  const verificacao = h(
+    "select",
+    { id: "ed-verif" },
+    Object.entries(TIPO_VERIFICACAO).map(([v, t]) => h("option", { value: v }, t)),
+  );
+  verificacao.value = verificacaoDe(req);
+  const ajuda = h("small", { class: "texto-suave" });
+  const item = h(
+    "select",
+    { id: "ed-item" },
+    h("option", { value: "" }, "Sem classificação"),
+    Object.entries(ITEM_CHECAGEM).map(([sigla, nome]) => h("option", { value: sigla }, `${sigla} · ${nome}`)),
+  );
+  item.value = req.item_checagem ?? "";
+  const ambientes = h("input", {
+    type: "text",
+    id: "ed-ambientes",
+    list: "lista-ambientes",
+    placeholder: "Ex.: Plataformas; Sala de baterias (vazio = todo o tópico)",
+  });
+  ambientes.value = req.ambientes.join("; ");
   const motivo = h("input", { type: "text", id: "ed-motivo", placeholder: "Por que não dá para verificar no modelo?" });
   motivo.value = texto(req.motivo_nao_verificavel);
 
@@ -456,10 +700,12 @@ function abrirEdicao(
   };
   tipoRestricao.addEventListener("change", ajustarRestricao);
   ajustarRestricao();
+  const entraNoIds = () => verificacaoEntraNoIds(verificacao.value as TipoVerificacao);
   const ajustarMotivo = () => {
-    motivo.disabled = verificavel.checked;
+    motivo.disabled = entraNoIds();
+    ajuda.textContent = DESCRICAO_VERIFICACAO[verificacao.value as TipoVerificacao];
   };
-  verificavel.addEventListener("change", ajustarMotivo);
+  verificacao.addEventListener("change", ajustarMotivo);
   ajustarMotivo();
 
   const mensagem = h("div", null);
@@ -471,14 +717,15 @@ function abrirEdicao(
     { class: "form-edicao", onsubmit: (ev: Event) => ev.preventDefault() },
     h("blockquote", { class: "trecho" }, req.evidencia.trecho, h("cite", null, citacao(req.evidencia))),
     campo("Descrição", descricao),
+    h("div", { class: "grade-2" }, campo("Ambientes (separados por ;)", ambientes), campo("Item de checagem", item)),
     h("div", { class: "grade-2" }, campo("Classe IFC", ifcClass), campo("PredefinedType", predefined)),
     h("div", { class: "grade-2" }, campo("Faceta IDS", faceta), campo("Cardinalidade", cardinalidade)),
     h("div", { class: "grade-3" }, campo("Pset / sistema", pset), campo("Propriedade / atributo", propriedade), campo("Tipo de dado", tipoDado)),
     campo("Restrição de valor", tipoRestricao),
     linhaValores,
     linhaIntervalo,
-    h("label", { class: "check-inline", for: verificavel.id }, verificavel, "Verificável por IDS"),
-    campo("Motivo (se não verificável)", motivo),
+    h("div", { class: "campo" }, h("label", { for: verificacao.id }, "Tipo de verificação"), verificacao, ajuda),
+    campo("Motivo (se fica fora do IDS)", motivo),
     linhaMarcos,
     mensagem,
   );
@@ -523,9 +770,15 @@ function abrirEdicao(
       tipo_dado: nulo(tipoDado.value),
       restricao,
       cardinalidade: cardinalidade.value as Cardinalidade,
-      verificavel_por_ids: verificavel.checked,
-      motivo_nao_verificavel: verificavel.checked ? null : nulo(motivo.value),
+      verificavel_por_ids: entraNoIds(),
+      motivo_nao_verificavel: entraNoIds() ? null : nulo(motivo.value),
       marcos: caixasMarcos.filter((cb) => cb.checked).map((cb) => cb.value),
+      ambientes: ambientes.value
+        .split(";")
+        .map((a) => a.trim())
+        .filter(Boolean),
+      item_checagem: (item.value || null) as ItemChecagem | null,
+      verificacao: verificacao.value as TipoVerificacao,
     };
     salvarBotao.disabled = true;
     try {
