@@ -48,10 +48,51 @@ import {
   toast,
   vazio,
 } from "../ui";
-import { Viewer3D } from "../viewer";
+import { Viewer3D, converterIfc, foiCancelamento } from "../viewer";
 
 let viewer: Viewer3D | null = null;
 let geracao = 0;
+
+type FonteIfc = string | File;
+
+/** Conversão do IFC em fragments, compartilhada entre as montagens do passo 6. */
+interface Conversao {
+  fonte: FonteIfc;
+  bytes: Promise<Uint8Array>;
+  progresso: number;
+  ouvintes: Set<(fracao: number) => void>;
+}
+
+let conversao: Conversao | null = null;
+
+/**
+ * Converte o IFC uma vez. Uma volta rápida ao passo 6 reaproveita a conversão em
+ * andamento (ou pronta) em vez de começar outra em paralelo na thread principal.
+ */
+function converterUmaVez(fonte: FonteIfc): Conversao {
+  if (conversao?.fonte === fonte) return conversao;
+  const ouvintes = new Set<(fracao: number) => void>();
+  const nova: Conversao = {
+    fonte,
+    ouvintes,
+    progresso: 0,
+    bytes: converterIfc(fonte, (p) => {
+      nova.progresso = p;
+      for (const ouvinte of ouvintes) ouvinte(p);
+    }),
+  };
+  // Se falhar, a próxima tentativa converte de novo.
+  nova.bytes.catch(() => {
+    if (conversao === nova) conversao = null;
+  });
+  conversao = nova;
+  return nova;
+}
+
+/** Esquece o modelo convertido (novo projeto). */
+export function esquecerModelo(): void {
+  conversao = null;
+}
 
 type Visao = "painel" | "edital";
 let visao: Visao = "painel";
@@ -464,7 +505,6 @@ export function renderResultados(ctx: Ctx): HTMLElement {
   // em memória como fragments, e a recriação num canvas novo não converte de novo.
   let montagem = 0;
   let recriacoes = 0;
-  let fragmentosEmCache: ArrayBuffer | null = null;
   const vigente = (minha: number) => minhaGeracao === geracao && minha === montagem;
   const areaViewer = () => blocoViewer.querySelector(".viewer-area");
 
@@ -531,19 +571,8 @@ export function renderResultados(ctx: Ctx): HTMLElement {
 
   const aoPerderContexto = (v: Viewer3D) => {
     avisoNoViewer("O navegador reiniciou a aceleração 3D. Recuperando o modelo…");
-    // Durante a conversão, quem recria é a montagem, depois de guardar o modelo.
-    if (v.carregado) void guardarFragmentos(v).then(() => recuperar("O navegador desligou a aceleração 3D."));
-  };
-
-  /** Guarda o modelo convertido para uma recuperação rápida. */
-  const guardarFragmentos = async (v: Viewer3D) => {
-    if (fragmentosEmCache) return;
-    try {
-      const buffer = await v.exportarFragmentos();
-      if (buffer && minhaGeracao === geracao) fragmentosEmCache = buffer;
-    } catch (e) {
-      console.warn("EditalCheck: não foi possível guardar o modelo convertido", e);
-    }
+    // Durante a carga, quem recria é a montagem, quando a carga terminar.
+    if (v.carregado) void recuperar("O navegador desligou a aceleração 3D.");
   };
 
   const montarViewer = async (): Promise<void> => {
@@ -587,33 +616,39 @@ export function renderResultados(ctx: Ctx): HTMLElement {
         }
         mostrarElemento(escolha.globalId, false);
       };
-      if (fragmentosEmCache) {
-        avisoNoViewer("Recarregando o modelo 3D…");
-        await v.carregarFragmentos(fragmentosEmCache);
-      } else {
-        avisoNoViewer("Convertendo o IFC no navegador…");
-        await v.carregarIfc(estado.ifcLocal ?? urls.modeloIfc(projetoId), (p) => {
-          ultimoAvanco = performance.now();
-          if (!vigente(minha)) return;
-          const fracao = p > 1 ? p / 100 : p;
-          overlay.querySelector(".carregando")?.replaceWith(
-            carregando(`Convertendo o IFC no navegador… ${Math.round(fracao * 100)}%`),
-          );
-        });
+      const fonte = converterUmaVez(estado.ifcLocal ?? urls.modeloIfc(projetoId));
+      const mostrarProgresso = (p: number) => {
+        ultimoAvanco = performance.now();
+        if (!vigente(minha)) return;
+        const fracao = p > 1 ? p / 100 : p;
+        overlay.querySelector(".carregando")?.replaceWith(
+          carregando(`Convertendo o IFC no navegador… ${Math.round(fracao * 100)}%`),
+        );
+      };
+      avisoNoViewer("Convertendo o IFC no navegador…");
+      mostrarProgresso(fonte.progresso);
+      fonte.ouvintes.add(mostrarProgresso);
+      let bytes: Uint8Array;
+      try {
+        bytes = await fonte.bytes;
+      } finally {
+        fonte.ouvintes.delete(mostrarProgresso);
       }
+      if (!vigente(minha)) return;
+      avisoNoViewer("Carregando o modelo 3D…");
+      await v.carregarFragmentos(bytes);
       window.clearInterval(vigia);
       if (!vigente(minha)) return;
       if (!v.contextoAtivo) {
-        // Caiu durante a conversão: guarda o modelo e recria num canvas novo.
-        await guardarFragmentos(v);
-        if (vigente(minha)) void recuperar("O navegador desligou a aceleração 3D durante a conversão.");
+        // Caiu durante a carga: recria num canvas novo com o modelo já convertido.
+        void recuperar("O navegador desligou a aceleração 3D durante a carga.");
         return;
       }
-      void guardarFragmentos(v);
       try {
         await v.mapearElementos([...indices.elementos.values()].map((e) => ({ global_id: e.global_id, step_id: e.step_id })));
         await v.aplicarEstados(relatorio.estado_elementos);
       } catch (e) {
+        if (!vigente(minha)) return;
         // O modelo já aparece; só as cores por situação ficaram de fora.
         console.error("EditalCheck: falha ao colorir o modelo", e);
         areaViewer()?.append(
@@ -627,7 +662,7 @@ export function renderResultados(ctx: Ctx): HTMLElement {
       }, ESTAVEL_MS);
     } catch (e) {
       window.clearInterval(vigia);
-      if (!vigente(minha)) return;
+      if (!vigente(minha) || foiCancelamento(e)) return;
       console.error("EditalCheck: falha no visualizador 3D", e);
       void recuperar(mensagemErro(e));
     }

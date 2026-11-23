@@ -3,7 +3,7 @@ import { api } from "./api";
 import { PASSOS, estadoInicial, passoMaximo, type Ctx, type Estado, type Passo } from "./state";
 import { renderEir } from "./steps/eir";
 import { renderIds } from "./steps/ids";
-import { descartarResultados, pedirFocoNoEdital, renderResultados } from "./steps/resultados";
+import { descartarResultados, esquecerModelo, pedirFocoNoEdital, renderResultados } from "./steps/resultados";
 import { renderTopicos } from "./steps/topicos";
 import { renderUpload } from "./steps/upload";
 import { pararPolling, renderVerificacao } from "./steps/verificacao";
@@ -32,6 +32,7 @@ const ctx: Ctx = {
 function novoProjeto(): void {
   pararPolling();
   descartarResultados();
+  esquecerModelo();
   estado = estadoInicial(estado.config);
   renderizar();
 }
