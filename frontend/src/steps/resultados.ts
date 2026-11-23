@@ -57,7 +57,9 @@ import {
   toast,
   vazio,
 } from "../ui";
-import { Viewer3D, converterIfc, foiCancelamento } from "../viewer";
+// A biblioteca 3D (three.js e @thatopen) só é baixada quando o visualizador abre.
+import type { Viewer3D } from "../viewer";
+import { foiCancelamento } from "../viewer-erros";
 
 let viewer: Viewer3D | null = null;
 let geracao = 0;
@@ -85,10 +87,12 @@ function converterUmaVez(fonte: FonteIfc): Conversao {
     fonte,
     ouvintes,
     progresso: 0,
-    bytes: converterIfc(fonte, (p) => {
-      nova.progresso = p;
-      for (const ouvinte of ouvintes) ouvinte(p);
-    }),
+    bytes: import("../viewer").then(({ converterIfc }) =>
+      converterIfc(fonte, (p) => {
+        nova.progresso = p;
+        for (const ouvinte of ouvintes) ouvinte(p);
+      }),
+    ),
   };
   // Se falhar, a próxima tentativa converte de novo.
   nova.bytes.catch(() => {
@@ -259,7 +263,7 @@ export function renderResultados(ctx: Ctx): HTMLElement {
   }
 
   // ---------------------------------------------------------------- detalhe
-  const detalhe = h("aside", { class: "detalhe", "aria-live": "polite" });
+  const detalhe = h("aside", { class: "detalhe", "aria-label": "Detalhe do apontamento ou elemento" });
   const listaApts = h("div", { class: "lista-apontamentos" });
   let selecionado: string | null = null;
 
@@ -609,6 +613,8 @@ export function renderResultados(ctx: Ctx): HTMLElement {
       }
     }, 5000);
     try {
+      const { Viewer3D } = await import("../viewer");
+      if (!vigente(minha)) return;
       const v = await Viewer3D.criar(canvasHost);
       if (!vigente(minha)) {
         v.dispose();
@@ -948,8 +954,9 @@ function cartaoApontamento(apt: Apontamento, decisao: Decisao | null, aoClicar: 
       "data-apt": apt.id,
       onclick: () => aoClicar(),
     },
+    // Só elementos de frase dentro do <button> (HTML válido): span no lugar de div.
     h(
-      "div",
+      "span",
       { class: "apontamento-topo" },
       seloOrigem(apt),
       badge(rotulo(SEVERIDADE, apt.severidade), VARIANTE_SEVERIDADE[apt.severidade] ?? "neutro"),

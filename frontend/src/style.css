@@ -1222,6 +1222,15 @@ input[type="search"].campo-busca {
   overflow: auto;
 }
 
+.modal-mensagem {
+  margin: 0;
+}
+
+/* Com um modal aberto, a página de trás não rola (a barra fica reservada pelo gutter). */
+body.com-sobreposicao {
+  overflow: hidden;
+}
+
 .form-edicao {
   display: flex;
   flex-direction: column;

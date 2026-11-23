@@ -140,21 +140,108 @@ export function mensagemErro(e: unknown): string {
   return String(e);
 }
 
+interface Camada {
+  elemento: HTMLElement;
+  fechar: () => void;
+}
+
+/** Sobreposições abertas, da mais antiga para a do topo: Escape e Tab agem só na do topo. */
+const pilha: Camada[] = [];
+const SELETOR_FOCAVEL =
+  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function focaveis(elemento: HTMLElement): HTMLElement[] {
+  return [...elemento.querySelectorAll<HTMLElement>(SELETOR_FOCAVEL)].filter((el) => el.offsetParent !== null);
+}
+
+function aoTeclarNaPilha(ev: KeyboardEvent): void {
+  const topo = pilha.at(-1);
+  if (!topo) return;
+  if (ev.key === "Escape") {
+    ev.preventDefault();
+    topo.fechar();
+    return;
+  }
+  if (ev.key !== "Tab") return;
+  // O foco não sai da sobreposição com Tab.
+  const lista = focaveis(topo.elemento);
+  if (!lista.length) return;
+  const primeiro = lista[0];
+  const ultimo = lista[lista.length - 1];
+  const ativo = document.activeElement;
+  if (!topo.elemento.contains(ativo)) {
+    ev.preventDefault();
+    primeiro.focus();
+  } else if (ev.shiftKey && ativo === primeiro) {
+    ev.preventDefault();
+    ultimo.focus();
+  } else if (!ev.shiftKey && ativo === ultimo) {
+    ev.preventDefault();
+    primeiro.focus();
+  }
+}
+
+/** Primeiro campo; sem campo, o primeiro botão do rodapé (o de cancelar, quando houver). */
+function focarInicio(elemento: HTMLElement): void {
+  // Em tela de toque, focar um campo abre o teclado sem pedido: foca a própria caixa.
+  const toque = window.matchMedia("(pointer: coarse)").matches;
+  const campo = toque ? null : elemento.querySelector<HTMLElement>("input:not([type=hidden]), select, textarea");
+  const alvo = campo ?? elemento.querySelector<HTMLElement>(".modal-rodape button, .revisao-pdf-rodape button");
+  if (alvo) {
+    alvo.focus({ preventScroll: true });
+    return;
+  }
+  elemento.setAttribute("tabindex", "-1");
+  elemento.focus({ preventScroll: true });
+}
+
+/**
+ * Abre uma sobreposição (modal ou tela cheia): trava a rolagem da página, leva o foco para
+ * dentro e o devolve ao fechar. Escape fecha só a sobreposição do topo.
+ */
+export function abrirSobreposicao(elemento: HTMLElement, aoFechar?: () => void): { fechar: () => void } {
+  const focoAnterior = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  if (!pilha.length) {
+    document.addEventListener("keydown", aoTeclarNaPilha);
+    document.body.classList.add("com-sobreposicao");
+  }
+  let aberta = true;
+  const camada: Camada = {
+    elemento,
+    fechar: () => {
+      if (!aberta) return;
+      aberta = false;
+      pilha.splice(pilha.indexOf(camada), 1);
+      elemento.remove();
+      if (!pilha.length) {
+        document.removeEventListener("keydown", aoTeclarNaPilha);
+        document.body.classList.remove("com-sobreposicao");
+      }
+      aoFechar?.();
+      if (focoAnterior?.isConnected) focoAnterior.focus({ preventScroll: true });
+    },
+  };
+  pilha.push(camada);
+  document.body.append(elemento);
+  requestAnimationFrame(() => {
+    if (aberta) focarInicio(elemento);
+  });
+  return { fechar: camada.fechar };
+}
+
 export interface Modal {
   fechar: () => void;
   corpo: HTMLDivElement;
 }
 
-export function abrirModal(titulo: string, conteudo: HTMLElement, rodape: HTMLElement[]): Modal {
+export function abrirModal(
+  titulo: string,
+  conteudo: HTMLElement,
+  rodape: HTMLElement[],
+  aoFechar?: () => void,
+): Modal {
   const corpo = h("div", { class: "modal-corpo" }, conteudo);
   const fundo = h("div", { class: "modal-fundo" });
-  const fechar = () => {
-    fundo.remove();
-    document.removeEventListener("keydown", aoTeclar);
-  };
-  const aoTeclar = (ev: KeyboardEvent) => {
-    if (ev.key === "Escape") fechar();
-  };
   const caixa = h(
     "div",
     { class: "modal", role: "dialog", "aria-modal": "true", "aria-label": titulo },
@@ -171,9 +258,31 @@ export function abrirModal(titulo: string, conteudo: HTMLElement, rodape: HTMLEl
   fundo.addEventListener("click", (ev) => {
     if (ev.target === fundo) fechar();
   });
-  document.addEventListener("keydown", aoTeclar);
-  document.body.append(fundo);
+  const { fechar } = abrirSobreposicao(fundo, aoFechar);
   return { fechar, corpo };
+}
+
+/** Pergunta de sim ou não num modal da página (no lugar do window.confirm do navegador). */
+export function confirmar(
+  titulo: string,
+  mensagem: string,
+  textoConfirmar: string,
+  variante: "primario" | "perigo" = "primario",
+): Promise<boolean> {
+  return new Promise((resolver) => {
+    let resposta = false;
+    const cancelar = h("button", { type: "button", class: "btn btn-fantasma" }, "Cancelar");
+    const ok = h("button", { type: "button", class: `btn btn-${variante}` }, textoConfirmar);
+    // Qualquer outra forma de fechar (Escape, fundo, ×) conta como "não".
+    const modal = abrirModal(titulo, h("p", { class: "modal-mensagem" }, mensagem), [cancelar, ok], () =>
+      resolver(resposta),
+    );
+    cancelar.addEventListener("click", () => modal.fechar());
+    ok.addEventListener("click", () => {
+      resposta = true;
+      modal.fechar();
+    });
+  });
 }
 
 const formatoPercentual = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });

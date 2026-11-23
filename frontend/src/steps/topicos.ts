@@ -60,7 +60,7 @@ export function renderTopicos(ctx: Ctx): HTMLElement {
         estado.selecionados = new Set(
           topicos.filter((t) => t.relevante_bim && selecionavel(t)).map((t) => t.id),
         );
-        ctx.atualizar();
+        ctx.atualizarNoPasso(2);
       })
       .catch((e) => {
         limpar(corpo);

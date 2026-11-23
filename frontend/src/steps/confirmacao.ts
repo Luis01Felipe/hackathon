@@ -5,7 +5,7 @@ import { api, urls } from "../api";
 import { VisualizadorPdf, type MarcaPdf } from "../pdf";
 import type { RegiaoPdf, Topico } from "../types";
 import { campoBusca, contem } from "../filtros";
-import { append, badge, carregando, erro, h, limpar, mensagemErro, paginas } from "../ui";
+import { abrirSobreposicao, append, badge, carregando, erro, h, limpar, mensagemErro, paginas } from "../ui";
 
 const regioesEmCache = new Map<string, Record<string, RegiaoPdf[]>>();
 
@@ -29,14 +29,7 @@ export function abrirConfirmacaoTopicos(opcoes: Opcoes): void {
   const confirmar = h("button", { type: "button", class: "btn btn-primario" }, "Confirmar e gerar IR");
   const fundo = h("div", { class: "revisao-pdf", role: "dialog", "aria-modal": "true", "aria-label": "Confirmar os tópicos no edital" });
 
-  const fechar = () => {
-    visualizador?.dispose();
-    fundo.remove();
-    document.removeEventListener("keydown", aoTeclar);
-  };
-  const aoTeclar = (ev: KeyboardEvent) => {
-    if (ev.key === "Escape") fechar();
-  };
+  let fechar: () => void = () => undefined;
 
   const marcas = (): MarcaPdf[] =>
     selecionaveis.flatMap((t) => {
@@ -174,8 +167,7 @@ export function abrirConfirmacaoTopicos(opcoes: Opcoes): void {
       ),
     ),
   );
-  document.addEventListener("keydown", aoTeclar);
-  document.body.append(fundo);
+  ({ fechar } = abrirSobreposicao(fundo, () => visualizador?.dispose()));
   desenharLista();
 
   void (async () => {

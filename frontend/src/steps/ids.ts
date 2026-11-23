@@ -165,7 +165,7 @@ export function renderIds(ctx: Ctx): HTMLElement {
         selectMarco.value || null,
         (selectVersao.value || null) as VersaoIfc | null,
       );
-      ctx.atualizar();
+      ctx.atualizarNoPasso(4);
     } catch (e) {
       limpar(status);
       status.append(erro(mensagemErro(e)));

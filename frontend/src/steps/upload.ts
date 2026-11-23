@@ -93,7 +93,7 @@ export function renderUpload(ctx: Ctx): HTMLElement {
     try {
       estado.projeto = await acao();
       estado.ifcLocal = ifcLocal;
-      ctx.atualizar();
+      ctx.atualizarNoPasso(1);
     } catch (e) {
       limpar(status);
       status.append(erro(mensagemErro(e)));

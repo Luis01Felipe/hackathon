@@ -199,7 +199,7 @@ export function renderEir(ctx: Ctx): HTMLElement {
       .ir(projeto.id)
       .then((eir) => {
         estado.eir = eir;
-        ctx.atualizar();
+        ctx.atualizarNoPasso(3);
       })
       .catch((e) => {
         secao.lastChild?.remove();
@@ -213,7 +213,7 @@ export function renderEir(ctx: Ctx): HTMLElement {
       .topicos(projeto.id)
       .then((topicos) => {
         estado.topicos = topicos;
-        ctx.atualizar();
+        ctx.atualizarNoPasso(3);
       })
       .catch(() => undefined);
   }
@@ -393,7 +393,7 @@ export function renderEir(ctx: Ctx): HTMLElement {
         projeto.marcos = marcos;
         estado.ids = null;
         estado.eir = await api.ir(projeto.id);
-        ctx.atualizar();
+        ctx.atualizarNoPasso(3);
       }),
     );
   };
@@ -407,7 +407,7 @@ export function renderEir(ctx: Ctx): HTMLElement {
       estado.eir = novo;
       estado.ids = null;
       toast("Requisitos verificáveis aprovados.", "sucesso");
-      ctx.atualizar();
+      ctx.atualizarNoPasso(3);
     } catch (e) {
       limpar(status);
       status.append(erro(mensagemErro(e)));

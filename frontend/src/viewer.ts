@@ -17,6 +17,7 @@ import * as OBC from "@thatopen/components";
 import * as FRAGS from "@thatopen/fragments";
 import * as THREE from "three";
 import type { EstadoElemento, EstadoElementoItem } from "./types";
+import { CargaCancelada } from "./viewer-erros";
 
 type Mundo = OBC.SimpleWorld<OBC.SimpleScene, OBC.OrthoPerspectiveCamera, OBC.SimpleRenderer>;
 
@@ -44,20 +45,6 @@ function material(cor: THREE.Color, opacidade = 1): FRAGS.MaterialDefinition {
 export interface EscolhaElemento {
   globalId: string | null;
   localId: number;
-}
-
-/** O visualizador foi descartado antes de a carga terminar. Não é falha: a tela saiu. */
-export class CargaCancelada extends Error {
-  constructor() {
-    super("Carga do modelo 3D cancelada: o visualizador foi descartado.");
-    this.name = "CargaCancelada";
-  }
-}
-
-/** Cancelamento esperado (nosso ou do Fragments), que não deve ir para o console. */
-export function foiCancelamento(erro: unknown): boolean {
-  if (erro instanceof CargaCancelada) return true;
-  return erro instanceof Error && erro.name === "LoadAbortedError";
 }
 
 /**
@@ -111,6 +98,8 @@ export class Viewer3D {
   private contexto = true;
   private carregando = false;
   private readonly pendentes = new Set<Promise<unknown>>();
+  /** Uma definição por cor e opacidade: o Fragments não recria material a cada clique. */
+  private readonly materiais = new Map<string, FRAGS.MaterialDefinition>();
 
   private constructor(
     private readonly components: OBC.Components,
@@ -146,12 +135,14 @@ export class Viewer3D {
       world.scene.three.add(model.object);
       void fragments.core.update(true);
     });
-    // Evita z-fighting entre portas/janelas e paredes coplanares.
+    // Evita z-fighting entre portas/janelas e paredes coplanares: cada material recebe um
+    // deslocamento de profundidade diferente, em ciclo (determinístico, sem sorteio).
+    let indiceMaterial = 0;
     fragments.core.models.materials.list.onItemSet.add(({ value: mat }) => {
       if ("isLodMaterial" in mat && mat.isLodMaterial) return;
       mat.polygonOffset = true;
       mat.polygonOffsetUnits = 1;
-      mat.polygonOffsetFactor = Math.random();
+      mat.polygonOffsetFactor = (indiceMaterial++ % 8) * 0.125;
     });
 
     viewer.ligarCliques();
@@ -242,8 +233,7 @@ export class Viewer3D {
     const ids = globalIds
       .map((g) => this.guidParaLocal.get(g))
       .filter((id): id is number => id !== undefined);
-    this.selecionados = ids;
-    await this.pintar();
+    await this.trocarSelecao(ids);
     if (ids.length) {
       await this.acompanhar(undefined, () => this.world.camera.fitToItems({ [model.modelId]: new Set(ids) }));
     }
@@ -251,8 +241,7 @@ export class Viewer3D {
   }
 
   async limparSelecao(): Promise<void> {
-    this.selecionados = [];
-    await this.pintar();
+    await this.trocarSelecao([]);
   }
 
   /** Esconde tudo o que não pertence ao apontamento e enquadra o que sobrou (RF-181). */
@@ -268,8 +257,7 @@ export class Viewer3D {
       await model.setVisible(ids, true);
     });
     this.isolado = true;
-    this.selecionados = ids;
-    await this.pintar();
+    await this.trocarSelecao(ids);
     await this.acompanhar(undefined, () => this.world.camera.fitToItems({ [model.modelId]: new Set(ids) }));
     return ids.length;
   }
@@ -332,39 +320,57 @@ export class Viewer3D {
     }
   }
 
+  /** Repinta o modelo inteiro (estados novos ou troca da transparência). */
   private async pintar(): Promise<void> {
-    await this.acompanhar(undefined, () => this.aplicarCores());
+    await this.acompanhar(undefined, async () => {
+      const model = this.model;
+      if (!model) return;
+      await model.resetHighlight();
+      await this.realcar(this.todos);
+    });
   }
 
-  private async aplicarCores(): Promise<void> {
-    const model = this.model;
-    if (!model) return;
-    await model.resetHighlight();
-    const grupos = new Map<string, { def: FRAGS.MaterialDefinition; ids: number[] }>();
-    const adicionar = (chave: string, def: FRAGS.MaterialDefinition, id: number) => {
-      const grupo = grupos.get(chave) ?? { def, ids: [] };
-      grupo.ids.push(id);
-      grupos.set(chave, grupo);
-    };
-    const selecionados = new Set(this.selecionados);
-    const opacidadeNeutra = this.transparencia ? 0.32 : 1;
-    for (const id of this.todos) {
-      const espaco = this.espacos.has(id);
-      if (selecionados.has(id)) {
-        adicionar("sel", material(CORES.selecionado, espaco ? 0.55 : 1), id);
-        continue;
-      }
-      const estado = this.estados.get(id);
-      if (estado) {
-        const opacidade = espaco ? 0.35 : 1;
-        adicionar(`${estado}-${espaco}`, material(CORES[estado], opacidade), id);
-        continue;
-      }
-      const opacidade = espaco ? 0.08 : opacidadeNeutra;
-      adicionar(`neutro-${espaco}`, material(CORES.sem_requisito, opacidade), id);
+  /** Troca a seleção repintando só os itens que entram ou saem dela. */
+  private async trocarSelecao(novos: number[]): Promise<void> {
+    const afetados = [...new Set([...this.selecionados, ...novos])];
+    this.selecionados = novos;
+    await this.acompanhar(undefined, () => this.realcar(afetados));
+  }
+
+  private materialPorChave(chave: string, cor: THREE.Color, opacidade: number): FRAGS.MaterialDefinition {
+    let def = this.materiais.get(chave);
+    if (!def) {
+      def = material(cor, opacidade);
+      this.materiais.set(chave, def);
     }
-    for (const { def, ids } of grupos.values()) {
-      await model.highlight(ids, def);
+    return def;
+  }
+
+  /** Cor de um item: selecionado, com estado (conforme ou não) ou neutro. */
+  private materialDe(id: number, selecionados: Set<number>): FRAGS.MaterialDefinition {
+    const espaco = this.espacos.has(id);
+    if (selecionados.has(id)) {
+      return this.materialPorChave(`sel-${espaco}`, CORES.selecionado, espaco ? 0.55 : 1);
+    }
+    const estado = this.estados.get(id);
+    if (estado) return this.materialPorChave(`${estado}-${espaco}`, CORES[estado], espaco ? 0.35 : 1);
+    const opacidade = espaco ? 0.08 : this.transparencia ? 0.32 : 1;
+    return this.materialPorChave(`neutro-${espaco}-${opacidade}`, CORES.sem_requisito, opacidade);
+  }
+
+  private async realcar(ids: number[]): Promise<void> {
+    const model = this.model;
+    if (!model || !ids.length) return;
+    const selecionados = new Set(this.selecionados);
+    const grupos = new Map<FRAGS.MaterialDefinition, number[]>();
+    for (const id of ids) {
+      const def = this.materialDe(id, selecionados);
+      const grupo = grupos.get(def);
+      if (grupo) grupo.push(id);
+      else grupos.set(def, [id]);
+    }
+    for (const [def, grupo] of grupos) {
+      await model.highlight(grupo, def);
     }
     await this.fragments.core.update(true);
   }
@@ -409,8 +415,7 @@ export class Viewer3D {
         this.guidParaLocal.set(guid, alvo.localId);
       }
     }
-    this.selecionados = [alvo.localId];
-    await this.pintar();
+    await this.trocarSelecao([alvo.localId]);
     this.onPick?.({ globalId: guid, localId: alvo.localId });
   }
 }

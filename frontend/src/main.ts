@@ -9,7 +9,7 @@ import { renderUpload } from "./steps/upload";
 import { pararPolling, renderVerificacao } from "./steps/verificacao";
 import { barraFiltros, campoBusca, contem, reiniciarFiltros } from "./filtros";
 import { GLOSSARIO } from "./labels";
-import { abrirModal, badge, h, limpar, mensagemErro, toast } from "./ui";
+import { abrirModal, badge, confirmar, h, limpar, mensagemErro, toast } from "./ui";
 
 const raiz = document.querySelector<HTMLDivElement>("#app");
 if (!raiz) throw new Error("Elemento #app não encontrado");
@@ -27,6 +27,9 @@ const ctx: Ctx = {
   },
   irPara,
   atualizar: () => renderizar(),
+  atualizarNoPasso: (passo) => {
+    if (estado.passo === passo) renderizar();
+  },
 };
 
 function novoProjeto(): void {
@@ -45,7 +48,13 @@ async function encerrarEApagar(): Promise<void> {
     novoProjeto();
     return;
   }
-  if (!window.confirm("Apagar do servidor o edital, o modelo, as lições e os relatórios deste projeto?")) return;
+  const apagar = await confirmar(
+    "Encerrar e apagar dados",
+    "O edital, o modelo, as lições aprendidas e os relatórios deste projeto serão apagados do servidor. Não dá para desfazer.",
+    "Apagar dados",
+    "perigo",
+  );
+  if (!apagar) return;
   try {
     await api.apagarProjeto(projeto.id);
     toast("Dados do projeto apagados do servidor.", "sucesso");
