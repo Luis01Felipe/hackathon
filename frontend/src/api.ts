@@ -28,6 +28,9 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 /** Prefixa um caminho da API ("/api/...") com o caminho base do app. */
 export const rota = (caminho: string): string => `${BASE}${caminho}`;
 
+/** Evento disparado quando o servidor não tem mais o projeto (expirou ou foi apagado). */
+export const EVENTO_PROJETO_EXPIRADO = "editalcheck:projeto-expirado";
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -79,7 +82,13 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   } catch {
     throw new ApiError("Não foi possível conectar ao servidor do EditalCheck.", 0);
   }
-  if (!response.ok) throw await extrairErro(response);
+  if (!response.ok) {
+    const erro = await extrairErro(response);
+    if (erro.status === 404 && erro.message.startsWith("Projeto não encontrado")) {
+      window.dispatchEvent(new CustomEvent(EVENTO_PROJETO_EXPIRADO));
+    }
+    throw erro;
+  }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }

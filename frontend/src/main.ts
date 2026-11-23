@@ -1,5 +1,5 @@
 import "./style.css";
-import { api } from "./api";
+import { EVENTO_PROJETO_EXPIRADO, api } from "./api";
 import { PASSOS, estadoInicial, passoMaximo, type Ctx, type Estado, type Passo } from "./state";
 import { renderEir } from "./steps/eir";
 import { renderIds } from "./steps/ids";
@@ -189,6 +189,8 @@ function renderModo(): void {
 }
 
 function renderizar(): void {
+  const passoAtual = PASSOS.find((p) => p.numero === estado.passo);
+  document.title = passoAtual ? `${passoAtual.titulo} · EditalCheck` : "EditalCheck";
   renderStepper();
   renderModo();
   renderFaixa();
@@ -269,6 +271,13 @@ async function abrirPorLink(): Promise<boolean> {
     return false;
   }
 }
+
+/** O servidor apagou o projeto (tempo sem uso ou outro encerramento): recomeça com aviso. */
+window.addEventListener(EVENTO_PROJETO_EXPIRADO, () => {
+  if (!estado.projeto) return;
+  toast("Este projeto não está mais no servidor (expirou ou foi apagado). Envie os documentos de novo.", "erro");
+  novoProjeto();
+});
 
 async function iniciar(): Promise<void> {
   montarShell();

@@ -677,7 +677,7 @@ function abrirEdicao(
     type: "text",
     id: "ed-ambientes",
     list: "lista-ambientes",
-    placeholder: "Ex.: Plataformas; Sala de baterias (vazio = todo o tópico)",
+    placeholder: "Vazio = todo o tópico",
   });
   ambientes.value = req.ambientes.join("; ");
   const motivo = h("input", { type: "text", id: "ed-motivo", placeholder: "Por que não dá para verificar no modelo?" });

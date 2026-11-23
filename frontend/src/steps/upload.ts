@@ -160,10 +160,42 @@ export function renderUpload(ctx: Ctx): HTMLElement {
     status,
   );
   secao.append(cartao, avisoPrivacidade(ctx));
-  if (!estado.config) {
-    secao.append(erro("Não foi possível falar com a API do EditalCheck. Verifique se o backend está rodando."));
-  }
+  if (!estado.config) secao.prepend(avisoApiIndisponivel(ctx));
   return secao;
+}
+
+/** Servidor fora do ar na abertura: explica e permite tentar de novo sem recarregar a página. */
+function avisoApiIndisponivel(ctx: Ctx): HTMLElement {
+  const status = h("div", { class: "status-acao" });
+  const tentar = botao(
+    "Tentar de novo",
+    async () => {
+      tentar.disabled = true;
+      limpar(status);
+      status.append(carregando("Conectando ao servidor…"));
+      try {
+        ctx.estado.config = await api.config();
+        ctx.atualizarNoPasso(1);
+      } catch (e) {
+        limpar(status);
+        status.append(erro(mensagemErro(e)));
+        tentar.disabled = false;
+      }
+    },
+    "primario",
+  );
+  return h(
+    "div",
+    { class: "cartao cartao-erro cartao-indisponivel", role: "alert" },
+    h("h3", null, "Servidor indisponível"),
+    h(
+      "p",
+      { class: "texto-suave" },
+      "Não foi possível falar com o servidor do EditalCheck. Confira a conexão e tente de novo em alguns instantes.",
+    ),
+    tentar,
+    status,
+  );
 }
 
 function avisoPrivacidade(ctx: Ctx): HTMLElement {

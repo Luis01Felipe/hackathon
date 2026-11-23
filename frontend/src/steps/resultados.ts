@@ -961,9 +961,9 @@ function cartaoApontamento(apt: Apontamento, decisao: Decisao | null, aoClicar: 
       seloOrigem(apt),
       badge(rotulo(SEVERIDADE, apt.severidade), VARIANTE_SEVERIDADE[apt.severidade] ?? "neutro"),
       badge(rotulo(TIPO_APONTAMENTO, apt.tipo), apt.tipo === "licao_nao_explicita" ? "licao" : "neutro"),
-      h("span", { class: "apontamento-id" }, apt.id),
       apt.gerado_por_ia ? badge("IA", "info", "Gerado por IA — revisar") : null,
       decisao ? badge(rotulo(DECISAO, decisao.status), VARIANTE_DECISAO[decisao.status] ?? "neutro") : null,
+      h("span", { class: "apontamento-id" }, apt.id),
     ),
     h("strong", { class: "apontamento-titulo" }, apt.titulo),
     h(
@@ -1130,8 +1130,8 @@ function detalheApontamento(
                   { type: "button", class: "link-botao", onclick: () => acoes.focarElemento(el.global_id) },
                   el.nome_longo ?? el.nome ?? "(sem nome)",
                 ),
-                h("small", null, ` ${el.classe ?? ""} · `, h("code", null, el.global_id)),
-                xyz ? h("small", { class: "xyz" }, ` · ${xyz}`) : null,
+                h("small", null, el.classe ? `${el.classe} · ` : "", h("code", null, el.global_id)),
+                xyz ? h("small", { class: "xyz" }, xyz) : null,
               );
             }),
           ),
