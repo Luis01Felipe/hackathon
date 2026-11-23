@@ -1,7 +1,7 @@
 // Resultados — aba "Edital": o PDF à esquerda, com um grifo por apontamento, e os ajustes à
 // direita. Clicar num ajuste leva ao trecho e abre o detalhe. Só leitura: o PDF não é editado.
 import { api, baixarArquivo, urls } from "../api";
-import { barraFiltros, campoBusca, contem } from "../filtros";
+import { barraFiltros, campoBusca, contem, filtrosReiniciaveis } from "../filtros";
 import { DECISAO, ORIGEM_INCONSISTENCIA, QUEM_CORRIGE, SEVERIDADE, TIPO_APONTAMENTO, rotulo } from "../labels";
 import { VisualizadorPdf, type MarcaPdf } from "../pdf";
 import type { Apontamento, Decisao, LocalApontamento, Relatorio } from "../types";
@@ -9,7 +9,7 @@ import { append, badge, botao, botaoDownload, carregando, erro, h, limpar, mensa
 import { citacao } from "./eir";
 
 const ORDEM_SEVERIDADE: Record<string, number> = { alta: 0, media: 1, baixa: 2 };
-const filtros = { edital: true, modelo: true, severidade: "todas", busca: "" };
+const filtros = filtrosReiniciaveis({ edital: true, modelo: true, severidade: "todas", busca: "" });
 
 export interface AbaEdital {
   elemento: HTMLElement;
@@ -205,7 +205,7 @@ export function renderAbaEdital(r: Relatorio, decisoes: Map<string, Decisao>, op
   const severidade = h(
     "select",
     { "aria-label": "Severidade" },
-    h("option", { value: "todas" }, "Todas as severidades"),
+    h("option", { value: "todas" }, "Severidade: todas"),
     h("option", { value: "alta" }, "Alta"),
     h("option", { value: "media" }, "Média"),
     h("option", { value: "baixa" }, "Baixa"),

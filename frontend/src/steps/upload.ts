@@ -1,6 +1,6 @@
 // Passo 1 — Upload do edital (PDF), do modelo (IFC, opcional) e das lições aprendidas (TXT ou PDF).
 import { api } from "../api";
-import { barraFiltros, caixaFiltro, campoBusca, contador, contem } from "../filtros";
+import { barraFiltros, caixaFiltro, campoBusca, contador, contem, filtrosReiniciaveis } from "../filtros";
 import type { Ctx } from "../state";
 import type { ProjetoResumo, VersaoIfc } from "../types";
 import { avisos, badge, botao, carregando, erro, h, limpar, mensagemErro, num } from "../ui";
@@ -181,7 +181,7 @@ function avisoPrivacidade(ctx: Ctx): HTMLElement {
   );
 }
 
-const filtrosResumo = { busca: "", soEspecificaveis: false };
+const filtrosResumo = filtrosReiniciaveis({ busca: "", soEspecificaveis: false });
 
 function resumoProjeto(p: ProjetoResumo, ctx: Ctx): HTMLElement {
   const especificaveis = p.classes.filter((c) => c.especificavel);
@@ -200,7 +200,17 @@ function resumoProjeto(p: ProjetoResumo, ctx: Ctx): HTMLElement {
   const tabela = h(
     "table",
     { class: "tabela compacta lista-filtrada" },
-    h("thead", null, h("tr", null, h("th", null, "Classe IFC"), h("th", { class: "num" }, "Elementos"), h("th", null, ""))),
+    h(
+      "thead",
+      null,
+      h(
+        "tr",
+        null,
+        h("th", null, "Classe IFC"),
+        h("th", { class: "num col-estreita" }, "Elementos"),
+        h("th", { class: "col-selo" }, ""),
+      ),
+    ),
     h("tbody", null, linhasClasses.map((l) => l.el)),
   );
   const itensLicoes = p.licoes.map((l) => ({
@@ -288,7 +298,7 @@ function resumoProjeto(p: ProjetoResumo, ctx: Ctx): HTMLElement {
     avisos(p.avisos),
     barra,
     licoes,
-    p.sem_modelo ? null : h("details", { class: "detalhes" }, resumoClasses, tabela),
+    p.sem_modelo ? null : h("details", { class: "detalhes" }, resumoClasses, h("div", { class: "tabela-rolagem" }, tabela)),
     h("div", { class: "acoes" }, botao("Continuar para os tópicos →", () => ctx.irPara(2), "primario")),
   );
 }

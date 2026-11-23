@@ -28,7 +28,16 @@ import type {
   Requisito,
   StatusDecisao,
 } from "../types";
-import { barraFiltros, botaoLimpar, campoBusca, contador, contem, selectFiltro } from "../filtros";
+import {
+  aoReiniciarFiltros,
+  barraFiltros,
+  botaoLimpar,
+  campoBusca,
+  contador,
+  contem,
+  filtrosReiniciaveis,
+  selectFiltro,
+} from "../filtros";
 import { citacao } from "./eir";
 import { renderAbaEdital, type AbaEdital } from "./edital";
 import {
@@ -114,14 +123,14 @@ export function pedirFocoNoEdital(apontamentoId: string | null): void {
 }
 
 type Aba = "edital" | "modelo" | "manual" | "todos";
-const filtros = {
+const filtros = filtrosReiniciaveis({
   tipo: "todos",
   severidade: "todas",
   decisao: "todas",
   busca: "",
   mostrarBaixa: false,
   aba: "" as Aba | "",
-};
+});
 const CHAVE_PERFIL = "editalcheck.perfil";
 const ABA_DO_PERFIL: Record<string, Aba> = {
   contratante: "edital",
@@ -244,7 +253,10 @@ export function renderResultados(ctx: Ctx): HTMLElement {
   const vid = relatorio.verificacao_id;
   const decisoes = new Map<string, Decisao>(relatorio.decisoes.map((d) => [d.apontamento_id, d]));
   let perfil = lerPerfil();
-  if (!filtros.aba) filtros.aba = relatorio.sem_modelo ? "edital" : ABA_DO_PERFIL[perfil] ?? "todos";
+  // A aba "modelo" não existe sem IFC: um valor herdado dela deixaria a lista vazia.
+  if (!filtros.aba || (filtros.aba === "modelo" && relatorio.sem_modelo)) {
+    filtros.aba = relatorio.sem_modelo ? "edital" : ABA_DO_PERFIL[perfil] ?? "todos";
+  }
 
   // ---------------------------------------------------------------- detalhe
   const detalhe = h("aside", { class: "detalhe", "aria-live": "polite" });
@@ -318,7 +330,7 @@ export function renderResultados(ctx: Ctx): HTMLElement {
   const tiposPresentes = [...new Set(relatorio.apontamentos.map((a) => a.tipo))];
   const selectTipo = selectFiltro(
     "Tipo",
-    [["todos", "Todos os tipos"], ...tiposPresentes.map((t) => [t, rotulo(TIPO_APONTAMENTO, t)] as [string, string])],
+    [["todos", "Tipo: todos"], ...tiposPresentes.map((t) => [t, rotulo(TIPO_APONTAMENTO, t)] as [string, string])],
     filtros.tipo,
     (v) => {
       filtros.tipo = v;
@@ -327,7 +339,7 @@ export function renderResultados(ctx: Ctx): HTMLElement {
   );
   const selectSeveridade = selectFiltro(
     "Severidade",
-    [["todas", "Todas as severidades"], ["alta", "Alta"], ["media", "Média"], ["baixa", "Baixa"]],
+    [["todas", "Severidade: todas"], ["alta", "Alta"], ["media", "Média"], ["baixa", "Baixa"]],
     filtros.severidade,
     (v) => {
       filtros.severidade = v;
@@ -379,7 +391,7 @@ export function renderResultados(ctx: Ctx): HTMLElement {
   );
   const selectDecisao = selectFiltro(
     "Decisão",
-    [["todas", "Todas as decisões"], ...Object.entries(DECISAO)],
+    [["todas", "Decisão: todas"], ...Object.entries(DECISAO)],
     filtros.decisao,
     (v) => {
       filtros.decisao = v;
@@ -1253,6 +1265,7 @@ interface LinhaFiltravel {
 
 /** Busca e filtro por grupo de cada tabela complementar, mantidos entre redesenhos. */
 const filtrosTabelas = new Map<string, { busca: string; grupo: string }>();
+aoReiniciarFiltros(() => filtrosTabelas.clear());
 
 function filtroDeTabela(
   chave: string,
@@ -1325,7 +1338,15 @@ function secoesComplementares(r: Relatorio): HTMLElement {
               h(
                 "thead",
                 null,
-                h("tr", null, h("th", null, "Item"), h("th", null, "Crítico"), h("th", null, "Status"), h("th", null, "Evidência"), h("th", null, "Avaliado por")),
+                h(
+                  "tr",
+                  null,
+                  h("th", null, "Item"),
+                  h("th", { class: "col-estreita" }, "Crítico"),
+                  h("th", { class: "col-estreita" }, "Status"),
+                  h("th", null, "Evidência"),
+                  h("th", { class: "col-selo" }, "Avaliado por"),
+                ),
               ),
               h("tbody", null, linhasChecklist.map((l) => l.el)),
             ),
@@ -1369,7 +1390,18 @@ function secoesComplementares(r: Relatorio): HTMLElement {
             h(
               "table",
               { class: "tabela compacta lista-filtrada" },
-              h("thead", null, h("tr", null, h("th", null, "Classe"), h("th", { class: "num" }, "Elementos"), h("th", null, "Coberta"), h("th", null, "Requisitos"))),
+              h(
+                "thead",
+                null,
+                h(
+                  "tr",
+                  null,
+                  h("th", null, "Classe"),
+                  h("th", { class: "num col-estreita" }, "Elementos"),
+                  h("th", { class: "col-estreita" }, "Coberta"),
+                  h("th", null, "Requisitos"),
+                ),
+              ),
               h("tbody", null, linhasCobertura.map((l) => l.el)),
             ),
           ),
@@ -1417,7 +1449,18 @@ function secoesComplementares(r: Relatorio): HTMLElement {
             h(
               "table",
               { class: "tabela compacta lista-filtrada" },
-              h("thead", null, h("tr", null, h("th", null, "Especificação"), h("th", { class: "num" }, "Aplicáveis"), h("th", { class: "num" }, "Aprovados"), h("th", null, "Status"))),
+              h(
+                "thead",
+                null,
+                h(
+                  "tr",
+                  null,
+                  h("th", null, "Especificação"),
+                  h("th", { class: "num col-estreita" }, "Aplicáveis"),
+                  h("th", { class: "num col-estreita" }, "Aprovados"),
+                  h("th", { class: "col-selo" }, "Status"),
+                ),
+              ),
               h("tbody", null, linhasIds.map((l) => l.el)),
             ),
           ),
@@ -1481,7 +1524,11 @@ function blocoLicoesResultado(r: Relatorio): HTMLElement | null {
       h(
         "table",
         { class: "tabela compacta lista-filtrada" },
-        h("thead", null, h("tr", null, h("th", null, "Lição"), h("th", null, "Regra"), h("th", null, "No edital?"))),
+        h(
+          "thead",
+          null,
+          h("tr", null, h("th", null, "Lição"), h("th", null, "Regra"), h("th", { class: "col-selo" }, "No edital?")),
+        ),
         h("tbody", null, linhas.map((l) => l.el)),
       ),
     ),

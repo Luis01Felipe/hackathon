@@ -7,7 +7,7 @@ import { descartarResultados, esquecerModelo, pedirFocoNoEdital, renderResultado
 import { renderTopicos } from "./steps/topicos";
 import { renderUpload } from "./steps/upload";
 import { pararPolling, renderVerificacao } from "./steps/verificacao";
-import { barraFiltros, campoBusca, contem } from "./filtros";
+import { barraFiltros, campoBusca, contem, reiniciarFiltros } from "./filtros";
 import { GLOSSARIO } from "./labels";
 import { abrirModal, badge, h, limpar, mensagemErro, toast } from "./ui";
 
@@ -33,6 +33,7 @@ function novoProjeto(): void {
   pararPolling();
   descartarResultados();
   esquecerModelo();
+  reiniciarFiltros();
   estado = estadoInicial(estado.config);
   renderizar();
 }

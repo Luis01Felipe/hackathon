@@ -14,6 +14,7 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -150,7 +151,9 @@ def criar_app(container: Container | None = None) -> FastAPI:
             for arquivo in licoes or []
             if arquivo.filename
         ]
-        projeto = c.importar.executar(
+        # Ler PDF e IFC e chamar o LLM bloqueia: roda numa thread para não travar o servidor.
+        projeto = await run_in_threadpool(
+            c.importar.executar,
             pdf,
             Path(edital.filename or "edital.pdf").name,
             ifc,
@@ -228,7 +231,7 @@ def criar_app(container: Container | None = None) -> FastAPI:
             (await _ler_limitado(arquivo, limite), Path(arquivo.filename or "licoes.txt").name)
             for arquivo in licoes
         ]
-        resultado = c.importar_licoes.executar(projeto_id, documentos)
+        resultado = await run_in_threadpool(c.importar_licoes.executar, projeto_id, documentos)
         projeto = projeto_ou_404(projeto_id)
         return {
             "licoes": dto.licoes(projeto),

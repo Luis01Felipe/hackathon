@@ -2,7 +2,15 @@
 import { api } from "../api";
 import type { Ctx } from "../state";
 import type { Topico } from "../types";
-import { barraFiltros, botaoLimpar, campoBusca, contador as contadorFiltro, contem, selectFiltro } from "../filtros";
+import {
+  barraFiltros,
+  botaoLimpar,
+  campoBusca,
+  contador as contadorFiltro,
+  contem,
+  filtrosReiniciaveis,
+  selectFiltro,
+} from "../filtros";
 import { badge, botao, carregando, erro, h, limpar, mensagemErro, paginas, vazio } from "../ui";
 import { abrirConfirmacaoTopicos } from "./confirmacao";
 
@@ -16,7 +24,7 @@ const MOSTRAR: [Mostrar, string][] = [
   ["selecionados", "Selecionados"],
   ["nao_selecionados", "Não selecionados"],
 ];
-const filtros: { busca: string; mostrar: Mostrar } = { busca: "", mostrar: "todos" };
+const filtros = filtrosReiniciaveis<{ busca: string; mostrar: Mostrar }>({ busca: "", mostrar: "todos" });
 
 export function renderTopicos(ctx: Ctx): HTMLElement {
   const { estado } = ctx;
@@ -254,14 +262,15 @@ export function renderTopicos(ctx: Ctx): HTMLElement {
       contador,
     ),
     topicos.length ? lista : vazio("Nenhum tópico encontrado no edital."),
+    // O status fica na barra fixa, ao lado do botão: no fim de uma lista longa ninguém o veria.
     h(
       "div",
       { class: "acoes acoes-fixas" },
       botao("← Voltar", () => ctx.irPara(1), "fantasma"),
       estado.eir ? botao("Ver requisitos (IR)", () => ctx.irPara(3), "secundario") : null,
       gerar,
+      status,
     ),
-    status,
   );
   sincronizar();
   return secao;

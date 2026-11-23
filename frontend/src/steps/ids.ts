@@ -1,6 +1,14 @@
 // Passo 4 — Geração do IDS a partir dos requisitos de informação aprovados (código, não LLM).
 import { api, urls } from "../api";
-import { barraFiltros, botaoLimpar, campoBusca, contador, contem, selectFiltro } from "../filtros";
+import {
+  barraFiltros,
+  botaoLimpar,
+  campoBusca,
+  contador,
+  contem,
+  filtrosReiniciaveis,
+  selectFiltro,
+} from "../filtros";
 import { ITEM_CHECAGEM } from "../labels";
 import type { Ctx } from "../state";
 import type { Requisito, VersaoIfc } from "../types";
@@ -11,7 +19,7 @@ import { metrica } from "./upload";
 const escolha: { projeto: string | null; marco: string; versao: string } = { projeto: null, marco: "", versao: "" };
 
 /** Busca e filtros da lista de requisitos do escopo, mantidos entre redesenhos. */
-const filtros = { busca: "", item: "", classe: "" };
+const filtros = filtrosReiniciaveis({ busca: "", item: "", classe: "" });
 
 function listaDoEscopo(requisitos: Requisito[]): HTMLElement {
   const lista = h("ul", { class: "lista-compacta" });
@@ -53,13 +61,13 @@ function listaDoEscopo(requisitos: Requisito[]): HTMLElement {
   const busca = campoBusca("Buscar requisito por ID, texto, classe ou ambiente", filtros.busca, mudar("busca"));
   const selectItem = selectFiltro(
     "Item de checagem",
-    [["", "Todos os itens de checagem"], ...itens.map((i) => [i, `${i} · ${ITEM_CHECAGEM[i]}`] as [string, string])],
+    [["", "Item: todos"], ...itens.map((i) => [i, `${i} · ${ITEM_CHECAGEM[i]}`] as [string, string])],
     filtros.item,
     mudar("item"),
   );
   const selectClasse = selectFiltro(
     "Classe IFC",
-    [["", "Todas as classes IFC"], ...classes.map((c) => [c, c] as [string, string])],
+    [["", "Classe IFC: todas"], ...classes.map((c) => [c, c] as [string, string])],
     filtros.classe,
     mudar("classe"),
   );
