@@ -31,6 +31,7 @@ from editalcheck.domain.models import (
     Edital,
     Evidencia,
     FonteEvidencia,
+    ItemChecagem,
     ItemChecklist,
     LicaoAprendida,
     Recomendacao,
@@ -41,6 +42,7 @@ from editalcheck.domain.models import (
     StatusChecklist,
     TipoFaceta,
     TipoRestricao,
+    TipoVerificacao,
     Topico,
     TrechoVago,
     VerificacaoLicao,
@@ -103,6 +105,9 @@ def requisito_do_llm(item: RequisitoLLM, topico_id: str) -> Requisito:
         restricao=restricao,
         cardinalidade=Cardinalidade(item.cardinalidade),
         gerado_por="llm",
+        ambientes=tuple(a.strip() for a in item.ambientes if a.strip()),
+        item_checagem=ItemChecagem(item.item_checagem) if item.item_checagem else None,
+        verificacao=TipoVerificacao(item.verificacao) if item.verificacao else None,
     )
 
 
@@ -147,6 +152,7 @@ class LlmRequirementExtractor:
             classes=contexto.classes_modelo,
             vocabulario=_vocabulario(contexto),
             termos_bsdd=contexto.termos_bsdd,
+            ambientes_modelo=contexto.ambientes_modelo,
             referencias=referencias,
         )
         return [requisito_do_llm(item, topico.id) for item in resposta.requisitos]

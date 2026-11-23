@@ -146,17 +146,17 @@ export const api = {
   definirMarcos: (id: string, marcos: { id?: string | null; nome: string; descricao?: string }[]) =>
     request<MarcoEntrega[]>("PUT", `/api/projetos/${enc(id)}/marcos`, { marcos }),
 
-  gerarRi: (id: string, topicos: string[]) =>
-    request<EirResposta>("POST", `/api/projetos/${enc(id)}/ri`, { topicos }),
-  ri: (id: string) => request<EirResposta>("GET", `/api/projetos/${enc(id)}/ri`),
+  gerarIr: (id: string, topicos: string[]) =>
+    request<EirResposta>("POST", `/api/projetos/${enc(id)}/ir`, { topicos }),
+  ir: (id: string) => request<EirResposta>("GET", `/api/projetos/${enc(id)}/ir`),
   atualizarRequisito: (id: string, reqId: string, acao: AcaoRequisito) =>
-    request<Requisito>("PATCH", `/api/projetos/${enc(id)}/ri/requisitos/${enc(reqId)}`, acao),
+    request<Requisito>("PATCH", `/api/projetos/${enc(id)}/ir/requisitos/${enc(reqId)}`, acao),
   aprovarTodos: (id: string, somenteVerificaveis: boolean) =>
-    request<EirResposta>("POST", `/api/projetos/${enc(id)}/ri/aprovar-todos`, {
+    request<EirResposta>("POST", `/api/projetos/${enc(id)}/ir/aprovar-todos`, {
       somente_verificaveis: somenteVerificaveis,
     }),
   adicionarDeLacuna: (id: string, verificacaoId: string, apontamentoId: string) =>
-    request<Requisito[]>("POST", `/api/projetos/${enc(id)}/ri/requisitos`, {
+    request<Requisito[]>("POST", `/api/projetos/${enc(id)}/ir/requisitos`, {
       verificacao_id: verificacaoId,
       apontamento_id: apontamentoId,
     }),
@@ -180,7 +180,7 @@ export const api = {
 };
 
 export const urls = {
-  riXlsx: (id: string) => rota(`/api/projetos/${enc(id)}/ri.xlsx`),
+  irXlsx: (id: string) => rota(`/api/projetos/${enc(id)}/ir.xlsx`),
   editalPdf: (id: string) => rota(`/api/projetos/${enc(id)}/edital.pdf`),
   idsXml: (id: string) => rota(`/api/projetos/${enc(id)}/ids.xml`),
   modeloIfc: (id: string) => rota(`/api/projetos/${enc(id)}/modelo.ifc`),

@@ -2,11 +2,21 @@
 import { api } from "../api";
 import type { Ctx } from "../state";
 import type { Topico } from "../types";
+import { barraFiltros, botaoLimpar, campoBusca, contador as contadorFiltro, contem, selectFiltro } from "../filtros";
 import { badge, botao, carregando, erro, h, limpar, mensagemErro, paginas, vazio } from "../ui";
 import { abrirConfirmacaoTopicos } from "./confirmacao";
 
-/** Agrupadores não têm texto próprio: só os demais tópicos vão para os requisitos de informação (RI). */
+/** Agrupadores não têm texto próprio: só os demais tópicos vão para os requisitos de informação (IR). */
 const selecionavel = (t: Topico): boolean => !t.agrupador;
+
+type Mostrar = "todos" | "relevantes" | "selecionados" | "nao_selecionados";
+const MOSTRAR: [Mostrar, string][] = [
+  ["todos", "Todos os tópicos"],
+  ["relevantes", "Relevantes para BIM"],
+  ["selecionados", "Selecionados"],
+  ["nao_selecionados", "Não selecionados"],
+];
+const filtros: { busca: string; mostrar: Mostrar } = { busca: "", mostrar: "todos" };
 
 export function renderTopicos(ctx: Ctx): HTMLElement {
   const { estado } = ctx;
@@ -56,10 +66,35 @@ export function renderTopicos(ctx: Ctx): HTMLElement {
   const totalSelecionaveis = topicos.filter(selecionavel).length;
   const status = h("div", { class: "status-acao" });
   const contador = h("span", { class: "texto-suave" });
-  const gerar = h("button", { type: "button", class: "btn btn-primario" }, "Gerar requisitos (RI)");
+  const gerar = h("button", { type: "button", class: "btn btn-primario" }, "Gerar requisitos (IR)");
   const checkboxes = new Map<string, HTMLInputElement>();
   const itens = new Map<string, HTMLElement>();
   const recolhidos = new Set<string>();
+
+  const contagem = contadorFiltro();
+  const passaMostrar = (t: Topico): boolean => {
+    switch (filtros.mostrar) {
+      case "relevantes":
+        return t.relevante_bim;
+      case "selecionados":
+        return estado.selecionados.has(t.id);
+      case "nao_selecionados":
+        return selecionavel(t) && !estado.selecionados.has(t.id);
+      default:
+        return true;
+    }
+  };
+  /** Ids visíveis com busca ou filtro ativos; null quando nada filtra. */
+  const visiveisPeloFiltro = (): Set<string> | null => {
+    if (!filtros.busca.trim() && filtros.mostrar === "todos") return null;
+    const visiveis = new Set<string>();
+    for (const t of topicos) {
+      if (!passaMostrar(t) || !contem(filtros.busca, t.numero, t.titulo, t.resumo)) continue;
+      visiveis.add(t.id);
+      for (const a of arvore.ancestrais(t.id)) visiveis.add(a);
+    }
+    return visiveis;
+  };
 
   /** Tópicos selecionáveis que um clique no tópico marca ou desmarca. */
   const alvo = (t: Topico): Topico[] =>
@@ -75,14 +110,20 @@ export function renderTopicos(ctx: Ctx): HTMLElement {
       cb.indeterminate = marcados > 0 && marcados < lista.length;
       cb.disabled = lista.length === 0;
     }
+    const visiveis = visiveisPeloFiltro();
     for (const t of topicos) {
       const item = itens.get(t.id);
-      if (item) item.hidden = arvore.ancestrais(t.id).some((a) => recolhidos.has(a));
+      if (!item) continue;
+      // Com busca ou filtro, mostra quem atende e os ancestrais (contexto), mesmo recolhidos.
+      item.hidden = visiveis
+        ? !visiveis.has(t.id)
+        : arvore.ancestrais(t.id).some((a) => recolhidos.has(a));
     }
+    contagem.definir(visiveis ? topicos.filter((t) => visiveis.has(t.id)).length : topicos.length, topicos.length);
     const n = estado.selecionados.size;
     contador.textContent = `${n} de ${totalSelecionaveis} tópico(s) selecionado(s)`;
     gerar.disabled = n === 0;
-    gerar.textContent = n ? `Conferir no edital e gerar RI (${n}) →` : "Gerar requisitos (RI)";
+    gerar.textContent = n ? `Conferir no edital e gerar IR (${n}) →` : "Gerar requisitos (IR)";
   };
 
   const lista = h("ul", { class: "lista-topicos" });
@@ -156,7 +197,7 @@ export function renderTopicos(ctx: Ctx): HTMLElement {
       ),
     );
     try {
-      estado.eir = await api.gerarRi(projeto.id, selecionados);
+      estado.eir = await api.gerarIr(projeto.id, selecionados);
       estado.ids = null;
       ctx.irPara(3);
     } catch (e) {
@@ -179,7 +220,28 @@ export function renderTopicos(ctx: Ctx): HTMLElement {
   });
 
   const temSecoes = topicos.some((t) => arvore.filhos(t.id).length);
+  const busca = campoBusca("Buscar tópico por número, título ou resumo", filtros.busca, (termo) => {
+    filtros.busca = termo;
+    sincronizar();
+  });
+  const mostrar = selectFiltro("Mostrar", MOSTRAR, filtros.mostrar, (valor) => {
+    filtros.mostrar = valor as Mostrar;
+    sincronizar();
+  });
   corpo.append(
+    barraFiltros(
+      busca,
+      mostrar,
+      botaoLimpar(() => {
+        filtros.busca = "";
+        filtros.mostrar = "todos";
+        busca.value = "";
+        mostrar.value = "todos";
+        sincronizar();
+      }),
+      h("span", { class: "espaco" }),
+      contagem.el,
+    ),
     h(
       "div",
       { class: "barra-ferramentas" },
@@ -196,7 +258,7 @@ export function renderTopicos(ctx: Ctx): HTMLElement {
       "div",
       { class: "acoes acoes-fixas" },
       botao("← Voltar", () => ctx.irPara(1), "fantasma"),
-      estado.eir ? botao("Ver requisitos (RI)", () => ctx.irPara(3), "secundario") : null,
+      estado.eir ? botao("Ver requisitos (IR)", () => ctx.irPara(3), "secundario") : null,
       gerar,
     ),
     status,

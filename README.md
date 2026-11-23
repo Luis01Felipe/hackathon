@@ -2,19 +2,21 @@
 
 > Hackathon Open BIM + IA · Sinaenco · 22–23/11/2026. Nome do produto provisório.
 
-O EditalCheck transforma as exigências de um edital, escritas em linguagem natural, num **contrato de dados** operacional: os **requisitos de informação (RI)** e o **IDS**. Depois, verifica o modelo IFC contra esse contrato e o edital contra boas práticas. O objetivo é chegar a um **consenso** entre contratante e contratado antes que o problema chegue à obra.
+O EditalCheck transforma as exigências de um edital, escritas em linguagem natural, num **contrato de dados** operacional: os **requisitos de informação (IR)** e o **IDS**. Depois, verifica o modelo IFC contra esse contrato e o edital contra boas práticas. O objetivo é chegar a um **consenso** entre contratante e contratado antes que o problema chegue à obra.
 
 Entradas: **edital em PDF**, **modelo IFC** (opcional) e **lições aprendidas** em TXT ou PDF (opcional, ciclo PDCA).
 
-1. **O IFC cumpre o edital?** O sistema extrai os RI do edital e das lições aprendidas. Uma pessoa revisa e aprova. O sistema gera o **IDS** por código, para o contrato inteiro ou para um marco de entrega, e valida o IFC.
+1. **O IFC cumpre o edital?** O sistema extrai os IR do edital e das lições aprendidas. Uma pessoa revisa e aprova. O sistema gera o **IDS** por código, para o contrato inteiro ou para um marco de entrega, e valida o IFC.
 2. **O edital está bom?** O sistema aponta termos vagos, requisitos não verificáveis, itens mínimos ausentes, contradições, texto repetido e lições aprendidas que o edital não explicita.
 3. **O edital cobre o modelo?** O sistema mede quanto do modelo o edital especifica e sugere requisitos com Psets oficiais para as lacunas.
 
 Cada apontamento diz **onde está o problema** (no **edital**, o contratante corrige; no **modelo**, o contratado corrige), **o que** está errado, **onde** (página e/ou GlobalId com coordenada XYZ), **como agir** e **por que**. Cada parte registra a decisão (aceito, rejeitado, em discussão, dispensado). Os apontamentos do modelo aparecem num **visualizador 3D** e num **BCF**. Os do edital saem num **edital anotado em PDF** e numa **matriz de esclarecimentos**.
 
+**Revisão dos IR (Information Requirements).** Cada requisito mostra o tópico de origem, os ambientes a que se aplica, o item de checagem (disciplina) e o tipo de verificação (IDS, IDS + script, script geométrico ou manual). A planilha exportada segue o template de IR do time: Resumo, Requisitos, Matriz ambiente × item, Categorias, Itens de checagem, e Aceitação e qualidade. Todas as páginas têm busca (sem diferenciar acento e caixa) e filtros.
+
 **Edital na tela (só leitura).** O edital em PDF aparece em dois momentos:
 
-- **Antes de gerar os RI:** o PDF mostra os tópicos selecionados grifados e, tracejados, os relevantes para BIM que ficaram de fora. Dá para marcar ou desmarcar ali mesmo e voltar.
+- **Antes de gerar os IR:** o PDF mostra os tópicos selecionados grifados e, tracejados, os relevantes para BIM que ficaram de fora. Dá para marcar ou desmarcar ali mesmo e voltar.
 - **Nos resultados (aba "Edital com os ajustes"):** o PDF fica à esquerda, com um grifo por apontamento, e os ajustes à direita. Clicar num ajuste leva ao trecho e abre o detalhe; clicar num grifo abre o ajuste. O relatório HTML tem um link "Ver no edital" em cada apontamento.
 
 O **PDF com as sugestões** traz o mesmo conteúdo para uso sem o sistema: sumário com links para cada trecho, grifos com notas, etiquetas na margem que voltam ao sumário, links para buildingSMART e bSDD e um índice lateral (bookmarks) separado em "Corrigir no edital" e "Corrigir no modelo".
@@ -28,7 +30,7 @@ O **PDF com as sugestões** traz o mesmo conteúdo para uso sem o sistema: sumá
 | Padrão / serviço | Uso |
 |---|---|
 | **IFC** (IFC2X3, IFC4, IFC4X3) | Entrada do modelo, classes, Psets, GlobalIds e saúde do modelo |
-| **IDS 1.0** | Contrato de dados gerado dos requisitos de informação (RI) aprovados, com `purpose` e `milestone`, validado contra o XSD oficial e usado na verificação |
+| **IDS 1.0** | Contrato de dados gerado dos requisitos de informação (IR) aprovados, com `purpose` e `milestone`, validado contra o XSD oficial e usado na verificação |
 | **BCF 2.1** | Um tópico por apontamento do modelo, com um viewpoint por elemento (seleção, destaque em vermelho e câmera enquadrando o elemento), uma visão geral e um comentário ligado a cada viewpoint |
 | **bSDD** | URIs de propriedades e busca de termos (API REST pública) |
 | **Psets oficiais** | Vocabulário controlado dos requisitos e das sugestões de lacuna |
@@ -66,7 +68,7 @@ Salvaguardas contra alucinação (todas por código):
 
 ## Tratamento de dados (LGPD)
 
-- **Modo efêmero (padrão).** Edital, IFC, lições, RI, IDS, relatórios e BCF ficam só na memória do servidor. Nada é gravado em disco. Os dados somem quando o usuário clica em **Encerrar e apagar dados**, após 120 minutos sem uso (`EDITALCHECK_TTL_MIN`) ou quando o processo reinicia.
+- **Modo efêmero (padrão).** Edital, IFC, lições, IR, IDS, relatórios e BCF ficam só na memória do servidor. Nada é gravado em disco. Os dados somem quando o usuário clica em **Encerrar e apagar dados**, após 120 minutos sem uso (`EDITALCHECK_TTL_MIN`) ou quando o processo reinicia.
 - **Sem cache do LLM em disco** no modo efêmero: as respostas trazem trechos do edital.
 - **Log de auditoria sem conteúdo** (`var/auditoria/auditoria.jsonl`): data, etapa, ID aleatório do projeto, tamanhos e status. Nunca guarda texto de documento.
 - **Aviso antes da IA.** A interface informa que trechos são enviados à API paga do Google Gemini, que não usa esses dados para treinar modelos.
@@ -107,7 +109,7 @@ Clique em **Usar dados de exemplo (com lições)** para rodar a demo. Ela inclui
 cd backend; uv run editalcheck demo
 ```
 
-Outros comandos: `topicos <pdf>`, `modelo <ifc>`, `pipeline --edital <pdf> --modelo <ifc> [--licoes <txt|pdf>] [--topicos 5.1,5.2] [--gabarito <json>]` e `gerar-demo`. O `pipeline` grava em `--saida` o relatório (JSON e HTML), o BCF, o IDS, a planilha dos RI, o edital anotado e a matriz de esclarecimentos.
+Outros comandos: `topicos <pdf>`, `modelo <ifc>`, `pipeline --edital <pdf> --modelo <ifc> [--licoes <txt|pdf>] [--topicos 5.1,5.2] [--gabarito <json>]` e `gerar-demo`. O `pipeline` grava em `--saida` o relatório (JSON e HTML), o BCF, o IDS, a planilha dos IR, o edital anotado e a matriz de esclarecimentos.
 
 ### Testes
 

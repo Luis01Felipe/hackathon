@@ -1,4 +1,4 @@
-"""Geração determinística do IDS 1.0 a partir dos requisitos de informação (RI) aprovados.
+"""Geração determinística do IDS 1.0 a partir dos requisitos de informação (IR) aprovados.
 
 O LLM nunca escreve XML: cada requisito aprovado vira uma especificação IDS
 por código, com o ID do requisito no nome e no identifier.
@@ -133,7 +133,7 @@ def especificacao(requisito: Requisito, schema: str, marco: str | None = None) -
         identifier=requisito.id,
         description=origem,
         instructions=(
-            f"Requisito {requisito.id} dos requisitos de informação (RI) aprovados "
+            f"Requisito {requisito.id} dos requisitos de informação (IR) aprovados "
             f"(tópico {requisito.topico_id}). Entrega: {marco or 'contrato inteiro'}."
         ),
         minOccurs=0,
@@ -161,8 +161,8 @@ class IfcTesterIdsBuilder:
         """Monta o IDS do contrato inteiro (``marco=None``) ou de um marco de entrega."""
         documento = ids.Ids(
             title=titulo,
-            version=f"RI v{eir.versao}",
-            description="Requisitos de informação (RI) extraídos do edital e aprovados por uma "
+            version=f"IR v{eir.versao}",
+            description="Requisitos de informação (IR) extraídos do edital e aprovados por uma "
             "pessoa (EditalCheck). Cada especificação cita a página e o trecho do edital.",
             date=date.today().isoformat(),
             purpose=(

@@ -162,7 +162,7 @@ def pipeline(
     ] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
-    """Edital + IFC (+ lições) → RI (aprovação automática) → IDS → verificação → relatório e BCF."""
+    """Edital + IFC (+ lições) → IR (aprovação automática) → IDS → verificação → relatório e BCF."""
     c = _container(verbose)
     gab = carregar_gabarito(gabarito) if gabarito else None
     numeros = topicos_numeros.split(",") if topicos_numeros else (gab or {}).get("topicos_demo")
@@ -183,7 +183,7 @@ def pipeline(
         selecionados = _selecionar(projeto, numeros)
         resultado_eir = c.gerar_eir.executar(projeto.id, selecionados)
         typer.echo(
-            f"RI: {len(resultado_eir.eir.requisitos)} requisitos ({resultado_eir.descartados} descartados por S2)"
+            f"IR: {len(resultado_eir.eir.requisitos)} requisitos ({resultado_eir.descartados} descartados por S2)"
         )
         for aviso in resultado_eir.avisos:
             typer.secho(f"  aviso: {aviso}", fg="yellow")

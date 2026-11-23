@@ -17,7 +17,7 @@ No EditalCheck, as respostas são estas:
 |---|---|
 | Atores | Contratante (publica o edital), contratado líder e contratados (entregam o modelo), verificador independente |
 | Processo e marcos | Fases do edital: estudo preliminar, anteprojeto, projeto básico, projeto executivo, como construído. O sistema detecta os marcos citados no edital |
-| Requisitos de troca | Os **requisitos de informação (RI)** de cada marco. O **IDS** é a forma verificável por máquina desses requisitos |
+| Requisitos de troca | Os **requisitos de informação (IR)** de cada marco. O **IDS** é a forma verificável por máquina desses requisitos |
 
 ## Mapa de processo
 
@@ -25,11 +25,11 @@ No EditalCheck, as respostas são estas:
  Contratante                    EditalCheck                         Revisor humano
  ───────────                    ───────────                         ──────────────
  Edital (PDF) ─────────┐
- Lições aprendidas ────┼──► Lê, segmenta e extrai ──► RI propostos ──► aprova, edita, rejeita
+ Lições aprendidas ────┼──► Lê, segmenta e extrai ──► IR propostos ──► aprova, edita, rejeita
  (TXT/PDF, ciclo PDCA) │    (citações conferidas)      por marco          e associa a marcos
                        │                                                       │
                        │                                                       ▼
-                       │                              IDS por marco ◄──── RI aprovados
+                       │                              IDS por marco ◄──── IR aprovados
                        │                              (purpose + milestone)
  Contratado            │                                     │
  ──────────            │                                     ▼
@@ -54,7 +54,7 @@ No EditalCheck, as respostas são estas:
 
 | ID | Troca | De → Para | Conteúdo | Formato |
 |---|---|---|---|---|
-| T1 | Requisitos da contratação | Contratante → Contratado | Edital e RI aprovados | PDF, XLSX, IDS |
+| T1 | Requisitos da contratação | Contratante → Contratado | Edital e IR aprovados | PDF, XLSX, IDS |
 | T2 | Entrega do modelo | Contratado → Contratante | Modelo do marco | IFC |
 | T3 | Apontamentos do modelo | Verificador → Contratado | Não conformidades e qualidade do modelo | BCF 2.1, relatório HTML |
 | T4 | Apontamentos do edital | Verificador → Contratante | Ambiguidades, lacunas, contradições, lições ausentes | Edital anotado (PDF), matriz de esclarecimentos (XLSX) |
@@ -71,4 +71,4 @@ No EditalCheck, as respostas são estas:
 
 - O EditalCheck trata a fase de **contratação e entregas do contrato**. Ele não cobre requisitos de operação do ativo (AIR).
 - Um IDS do contrato inteiro é válido e já é usado no mercado. O IDS por marco atende a quem prefere verificar cada entrega.
-- O nome final do conjunto de requisitos ficou "requisitos de informação (RI)", mais genérico que EIR, por decisão do time.
+- O nome final do conjunto de requisitos ficou "requisitos de informação (IR, de Information Requirements)", mais genérico que EIR, por decisão do time. A sigla segue o inglês, como as demais da ISO 19650.

@@ -1,5 +1,6 @@
 // Passo 5 — Execução das análises A, B e C (assíncrona, com polling de 1 s).
 import { api } from "../api";
+import { barraFiltros, campoBusca, contador, contem, selectFiltro } from "../filtros";
 import { ETAPA_VERIFICACAO, STATUS_ANALISE, rotulo } from "../labels";
 import type { Ctx } from "../state";
 import type { StatusAnalise, Verificacao } from "../types";
@@ -7,6 +8,8 @@ import { append, avisos, badge, botao, carregando, erro, h, limpar, mensagemErro
 
 let timer: number | null = null;
 let inicioLocal = 0;
+/** Busca e filtro das análises; ficam fora do painel, que é redesenhado a cada segundo. */
+const filtros = { busca: "", status: "" };
 
 export function pararPolling(): void {
   if (timer !== null) window.clearTimeout(timer);
@@ -48,7 +51,26 @@ export function renderVerificacao(ctx: Ctx): HTMLElement {
 
   const painel = h("div", { class: "cartao" });
   const status = h("div", { class: "status-acao" });
-  secao.append(painel, status);
+  const contagem = contador();
+  const redesenhar = () => desenhar(estado.verificacao);
+  const barra = barraFiltros(
+    campoBusca("Buscar análise", filtros.busca, (termo) => {
+      filtros.busca = termo;
+      redesenhar();
+    }),
+    selectFiltro(
+      "Status da análise",
+      [["", "Todos os status"], ...Object.entries(STATUS_ANALISE)],
+      filtros.status,
+      (valor) => {
+        filtros.status = valor;
+        redesenhar();
+      },
+    ),
+    h("span", { class: "espaco" }),
+    contagem.el,
+  );
+  secao.append(barra, painel, status);
 
   const iniciar = async () => {
     pararPolling();
@@ -100,6 +122,7 @@ export function renderVerificacao(ctx: Ctx): HTMLElement {
 
   const desenhar = (v: Verificacao | null) => {
     limpar(painel);
+    barra.hidden = !v;
     if (!v) {
       painel.append(
         h(
@@ -116,6 +139,12 @@ export function renderVerificacao(ctx: Ctx): HTMLElement {
     const extras = Object.keys(v.progresso).filter((k) => !etapas.includes(k));
     const chaves = [...etapas.filter((k) => k in v.progresso), ...extras];
     const finalizadas = chaves.filter((k) => FINAIS.includes(v.progresso[k])).length;
+    const visiveis = chaves.filter((chave) => {
+      const info = ETAPA_VERIFICACAO[chave] ?? { titulo: chave, descricao: "" };
+      if (filtros.status && v.progresso[chave] !== filtros.status) return false;
+      return contem(filtros.busca, info.titulo, info.descricao, rotulo(STATUS_ANALISE, v.progresso[chave]));
+    });
+    contagem.definir(visiveis.length, chaves.length);
     const fracao = chaves.length ? finalizadas / chaves.length : 0;
     const segundos = inicioLocal ? (performance.now() - inicioLocal) / 1000 : null;
 
@@ -134,7 +163,8 @@ export function renderVerificacao(ctx: Ctx): HTMLElement {
       h(
         "ul",
         { class: "lista-analises" },
-        chaves.map((chave) => {
+        visiveis.length ? null : h("li", { class: "texto-suave" }, "Nenhuma análise com esses filtros."),
+        visiveis.map((chave) => {
           const info = ETAPA_VERIFICACAO[chave] ?? { titulo: chave, descricao: "" };
           const st = v.progresso[chave];
           return h(

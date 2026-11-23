@@ -5,6 +5,20 @@ export type Faceta = "property" | "attribute" | "classification" | "material" | 
 export type OrigemVocabulario = "pset_oficial" | "bsdd" | "customizado";
 export type Cardinalidade = "required" | "optional" | "prohibited";
 export type TipoRestricao = "valor" | "enumeracao" | "padrao" | "intervalo";
+export type ItemChecagem =
+  | "ILUM"
+  | "VENT"
+  | "ELET"
+  | "INCE"
+  | "ACES"
+  | "ACUS"
+  | "HIDR"
+  | "DADO"
+  | "ACAB"
+  | "OPER"
+  | "DIME"
+  | "ESTR";
+export type TipoVerificacao = "ids" | "ids_script" | "script" | "manual";
 export type TipoApontamento =
   | "nao_conformidade"
   | "ambiguidade"
@@ -124,7 +138,7 @@ export interface Topico {
   resumo: string | null;
   /** Tópico de nível superior (ex.: o "5" do "5.1"). */
   pai_id: string | null;
-  /** Seção que só agrupa subtópicos: não tem texto próprio e não é enviada aos requisitos de informação (RI). */
+  /** Seção que só agrupa subtópicos: não tem texto próprio e não é enviada aos requisitos de informação (IR). */
   agrupador: boolean;
 }
 
@@ -159,6 +173,10 @@ export interface Requisito {
   avisos: string[];
   marcos: string[];
   licao_id: string | null;
+  /** Ambientes (salas, espaços) a que o requisito se aplica; vazio = todo o tópico. */
+  ambientes: string[];
+  item_checagem: ItemChecagem | null;
+  verificacao: TipoVerificacao | null;
 }
 
 export interface EirResposta {
@@ -184,6 +202,9 @@ export interface CamposEdicao {
   verificavel_por_ids?: boolean;
   motivo_nao_verificavel?: string | null;
   marcos?: string[];
+  ambientes?: string[];
+  item_checagem?: ItemChecagem | null;
+  verificacao?: TipoVerificacao | null;
 }
 
 export type AcaoRequisito =

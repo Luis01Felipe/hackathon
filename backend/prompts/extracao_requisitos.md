@@ -1,5 +1,5 @@
-<!-- versao: 2026-11-23.1 -->
-Extraia os requisitos de informação (RI) do modelo BIM contidos no tópico do edital abaixo. O resultado é o contrato de dados da contratação: o que o modelo IFC deve conter em cada entrega.
+<!-- versao: 2026-11-23.2 -->
+Extraia os requisitos de informação (IR) do modelo BIM contidos no tópico do edital abaixo. O resultado é o contrato de dados da contratação: o que o modelo IFC deve conter em cada entrega.
 
 ## Como mapear cada requisito
 - Um requisito por exigência verificável. Se uma frase exige duas propriedades, gere dois requisitos.
@@ -16,6 +16,11 @@ Extraia os requisitos de informação (RI) do modelo BIM contidos no tópico do 
 - "evidencia.trecho": copie literalmente a frase do edital que gera o requisito.
 - Não gere requisitos para frases que não exigem nada do modelo.
 
+## Como classificar cada requisito
+- "ambientes": ambientes (salas, espaços) a que o requisito se aplica, ex.: "Plataformas", "Sala de baterias". Prefira os nomes da lista "Ambientes do modelo". Deixe vazio quando vale para todo o tópico.
+- "item_checagem": uma sigla. ILUM iluminação; VENT ventilação e climatização; ELET instalações elétricas; INCE incêndio e rotas de fuga; ACES acessibilidade; ACUS acústica; HIDR hidrossanitárias e drenagem; DADO comunicação, dados e sinalização; ACAB materiais e acabamentos; OPER operação e manutenção; DIME dimensões e programa de espaços; ESTR estrutura, concreto e durabilidade.
+- "verificacao": "ids" (o IDS verifica sozinho); "ids_script" (o IDS confere a informação, mas parte da exigência precisa de script); "script" (só análise geométrica do modelo); "manual" (conferência documental). Use "ids" ou "ids_script" só quando "verificavel_por_ids" for true.
+
 ## Exemplo (ilustrativo, não copie para a resposta)
 Frase: "5.1.1 Todas as portas deverão conter a propriedade FireRating do Pset_DoorCommon." (p. 3)
 → ifc_class "IfcDoor", faceta "property", pset "Pset_DoorCommon", propriedade "FireRating", tipo_dado "IfcLabel", cardinalidade "required", verificavel_por_ids true.
@@ -29,6 +34,12 @@ Frase: "O projeto deverá ser entregue em até 120 dias." (p. 2)
 ## Vocabulário oficial (Pset.Propriedade: tipo) por classe
 {{ vocabulario }}
 
+## Ambientes do modelo
+{% for a in ambientes_modelo -%}
+- {{ a }}
+{% else -%}
+(nenhum IfcSpace com nome)
+{% endfor %}
 ## Termos do bSDD consultados
 {% for t in termos_bsdd -%}
 - {{ t.nome }} ({{ t.tipo }}): {{ t.uri }}

@@ -1,12 +1,13 @@
 // Passo 1 — Upload do edital (PDF), do modelo (IFC, opcional) e das lições aprendidas (TXT ou PDF).
 import { api } from "../api";
+import { barraFiltros, caixaFiltro, campoBusca, contador, contem } from "../filtros";
 import type { Ctx } from "../state";
 import type { ProjetoResumo, VersaoIfc } from "../types";
 import { avisos, badge, botao, carregando, erro, h, limpar, mensagemErro, num } from "../ui";
 
 export const POSICIONAMENTO =
   "O EditalCheck transforma as exigências do edital, escritas em linguagem natural, num contrato de dados " +
-  "operacional: os requisitos de informação (RI) e o IDS. Depois, verifica o modelo IFC contra esse contrato " +
+  "operacional: os requisitos de informação (IR) e o IDS. Depois, verifica o modelo IFC contra esse contrato " +
   "e o edital contra boas práticas, para que contratante e contratado cheguem a um consenso antes da obra.";
 
 const EXTENSOES_LICOES = [".txt", ".md", ".pdf"];
@@ -180,49 +181,87 @@ function avisoPrivacidade(ctx: Ctx): HTMLElement {
   );
 }
 
+const filtrosResumo = { busca: "", soEspecificaveis: false };
+
 function resumoProjeto(p: ProjetoResumo, ctx: Ctx): HTMLElement {
   const especificaveis = p.classes.filter((c) => c.especificavel);
+  const linhasClasses = [...p.classes]
+    .sort((a, b) => b.contagem - a.contagem)
+    .map((c) => ({
+      classe: c,
+      el: h(
+        "tr",
+        null,
+        h("td", null, h("code", null, c.nome)),
+        h("td", { class: "num" }, num(c.contagem)),
+        h("td", null, c.especificavel ? badge("especificável", "info") : badge("fora da cobertura", "neutro")),
+      ),
+    }));
   const tabela = h(
     "table",
-    { class: "tabela compacta" },
+    { class: "tabela compacta lista-filtrada" },
     h("thead", null, h("tr", null, h("th", null, "Classe IFC"), h("th", { class: "num" }, "Elementos"), h("th", null, ""))),
-    h(
-      "tbody",
-      null,
-      [...p.classes]
-        .sort((a, b) => b.contagem - a.contagem)
-        .map((c) =>
-          h(
-            "tr",
-            null,
-            h("td", null, h("code", null, c.nome)),
-            h("td", { class: "num" }, num(c.contagem)),
-            h("td", null, c.especificavel ? badge("especificável", "info") : badge("fora da cobertura", "neutro")),
-          ),
-        ),
-    ),
+    h("tbody", null, linhasClasses.map((l) => l.el)),
   );
+  const itensLicoes = p.licoes.map((l) => ({
+    licao: l,
+    el: h(
+      "li",
+      null,
+      badge(l.id, "licao"),
+      " ",
+      h("strong", null, l.titulo),
+      l.termos_elemento.length ? h("small", { class: "texto-suave" }, ` · afeta: ${l.termos_elemento.join(", ")}`) : null,
+    ),
+  }));
+  const resumoClasses = h("summary", null);
+  const resumoLicoes = h("summary", null);
+  const contagem = contador();
+  const aplicar = () => {
+    let classesVisiveis = 0;
+    for (const { classe, el } of linhasClasses) {
+      el.hidden = (filtrosResumo.soEspecificaveis && !classe.especificavel) || !contem(filtrosResumo.busca, classe.nome);
+      if (!el.hidden) classesVisiveis += 1;
+    }
+    let licoesVisiveis = 0;
+    for (const { licao, el } of itensLicoes) {
+      el.hidden = !contem(filtrosResumo.busca, licao.id, licao.titulo, licao.regra, licao.termos_elemento.join(" "));
+      if (!el.hidden) licoesVisiveis += 1;
+    }
+    contagem.definir(classesVisiveis + licoesVisiveis, linhasClasses.length + itensLicoes.length);
+    resumoClasses.textContent = `Classes do modelo (${classesVisiveis} de ${p.classes.length})`;
+    resumoLicoes.textContent = `Lições aprendidas (${licoesVisiveis} de ${p.licoes.length}) · ${p.documentos_licoes.join(", ")}`;
+  };
+  const temListas = linhasClasses.length > 0 || itensLicoes.length > 0;
+  const barra = temListas
+    ? barraFiltros(
+        campoBusca("Buscar classe IFC ou lição aprendida", filtrosResumo.busca, (termo) => {
+          filtrosResumo.busca = termo;
+          aplicar();
+        }),
+        p.sem_modelo
+          ? null
+          : caixaFiltro("Só classes especificáveis", filtrosResumo.soEspecificaveis, (v) => {
+              filtrosResumo.soEspecificaveis = v;
+              aplicar();
+            }),
+        h("span", { class: "espaco" }),
+        contagem.el,
+      )
+    : null;
   const licoes = p.licoes.length
     ? h(
         "details",
         { class: "detalhes", open: true },
-        h("summary", null, `Lições aprendidas (${p.licoes.length}) · ${p.documentos_licoes.join(", ")}`),
+        resumoLicoes,
         h(
           "ul",
-          { class: "lista-licoes" },
-          p.licoes.map((l) =>
-            h(
-              "li",
-              null,
-              badge(l.id, "licao"),
-              " ",
-              h("strong", null, l.titulo),
-              l.termos_elemento.length ? h("small", { class: "texto-suave" }, ` · afeta: ${l.termos_elemento.join(", ")}`) : null,
-            ),
-          ),
+          { class: "lista-licoes lista-filtrada" },
+          itensLicoes.map((l) => l.el),
         ),
       )
     : null;
+  aplicar();
   return h(
     "div",
     { class: "cartao" },
@@ -247,10 +286,9 @@ function resumoProjeto(p: ProjetoResumo, ctx: Ctx): HTMLElement {
       metrica("Lições aprendidas", num(p.licoes.length)),
     ),
     avisos(p.avisos),
+    barra,
     licoes,
-    p.sem_modelo
-      ? null
-      : h("details", { class: "detalhes" }, h("summary", null, `Classes do modelo (${p.classes.length})`), tabela),
+    p.sem_modelo ? null : h("details", { class: "detalhes" }, resumoClasses, tabela),
     h("div", { class: "acoes" }, botao("Continuar para os tópicos →", () => ctx.irPara(2), "primario")),
   );
 }

@@ -1,7 +1,8 @@
 """API HTTP do EditalCheck (FastAPI). Contrato em docs/api.md.
 
-As rotas de requisitos de informação usam o prefixo ``/ri``. As rotas antigas
-com ``/eir`` continuam aceitas, fora da documentação, para compatibilidade.
+As rotas de requisitos de informação (IR, Information Requirements) usam o prefixo
+``/ir``. As rotas antigas com ``/ri`` e ``/eir`` continuam aceitas, fora da
+documentação, para compatibilidade.
 """
 
 import mimetypes
@@ -80,14 +81,15 @@ def criar_app(container: Container | None = None) -> FastAPI:
             raise NaoEncontradoError("Projeto não encontrado (pode ter expirado ou sido apagado).")
         return projeto
 
-    def rota_ri(metodo: str, caminho: str, **opcoes: Any) -> Callable:
-        """Registra ``/ri`` (documentada) e o alias antigo ``/eir`` (oculto)."""
+    def rota_ir(metodo: str, caminho: str, **opcoes: Any) -> Callable:
+        """Registra ``/ir`` (documentada) e os aliases antigos ``/ri`` e ``/eir`` (ocultos)."""
         registrar = getattr(app, metodo)
 
         def decorador(funcao: Callable) -> Callable:
             registrar(caminho, **opcoes)(funcao)
-            antigo = caminho.replace("/ri", "/eir", 1)
-            registrar(antigo, include_in_schema=False, **opcoes)(funcao)
+            for antigo in ("/ri", "/eir"):
+                alias = caminho.replace("/ir", antigo, 1)
+                registrar(alias, include_in_schema=False, **opcoes)(funcao)
             return funcao
 
         return decorador
@@ -232,19 +234,19 @@ def criar_app(container: Container | None = None) -> FastAPI:
 
     # ------------------------------------------------------------------ requisitos de informação
 
-    @rota_ri("post", "/api/projetos/{projeto_id}/ri")
-    def gerar_ri(projeto_id: str, corpo: dto.CriarEirRequest) -> dict[str, Any]:
+    @rota_ir("post", "/api/projetos/{projeto_id}/ir")
+    def gerar_ir(projeto_id: str, corpo: dto.CriarEirRequest) -> dict[str, Any]:
         resultado = c.gerar_eir.executar(projeto_id, corpo.topicos)
         return dto.eir_resposta(resultado.eir, resultado.avisos, resultado.descartados)
 
-    @rota_ri("get", "/api/projetos/{projeto_id}/ri")
-    def obter_ri(projeto_id: str) -> dict[str, Any]:
+    @rota_ir("get", "/api/projetos/{projeto_id}/ir")
+    def obter_ir(projeto_id: str) -> dict[str, Any]:
         projeto = projeto_ou_404(projeto_id)
         if projeto.eir is None:
-            raise NaoEncontradoError("Os requisitos de informação (RI) ainda não foram gerados.")
+            raise NaoEncontradoError("Os requisitos de informação (IR) ainda não foram gerados.")
         return dto.eir_resposta(projeto.eir)
 
-    @rota_ri("patch", "/api/projetos/{projeto_id}/ri/requisitos/{requisito_id}")
+    @rota_ir("patch", "/api/projetos/{projeto_id}/ir/requisitos/{requisito_id}")
     def revisar_requisito(
         projeto_id: str, requisito_id: str, corpo: dto.PatchRequisitoRequest
     ) -> dict[str, Any]:
@@ -262,11 +264,11 @@ def criar_app(container: Container | None = None) -> FastAPI:
                 requisito = revisar.editar(projeto_id, requisito_id, corpo.campos)
         return dto.requisito(requisito)
 
-    @rota_ri("post", "/api/projetos/{projeto_id}/ri/aprovar-todos")
+    @rota_ir("post", "/api/projetos/{projeto_id}/ir/aprovar-todos")
     def aprovar_todos(projeto_id: str, corpo: dto.AprovarTodosRequest) -> dict[str, Any]:
         return dto.eir_resposta(c.revisar_eir.aprovar_todos(projeto_id, corpo.somente_verificaveis))
 
-    @rota_ri("post", "/api/projetos/{projeto_id}/ri/requisitos", status_code=201)
+    @rota_ir("post", "/api/projetos/{projeto_id}/ir/requisitos", status_code=201)
     def adicionar_de_lacuna(
         projeto_id: str, corpo: dto.AdicionarLacunaRequest
     ) -> list[dict[str, Any]]:
@@ -282,14 +284,15 @@ def criar_app(container: Container | None = None) -> FastAPI:
             dto.requisito(r) for r in c.revisar_eir.adicionar_de_lacuna(projeto_id, apontamento)
         ]
 
-    @app.get("/api/projetos/{projeto_id}/ri.xlsx")
+    @app.get("/api/projetos/{projeto_id}/ir.xlsx")
+    @app.get("/api/projetos/{projeto_id}/ri.xlsx", include_in_schema=False)
     @app.get("/api/projetos/{projeto_id}/eir.xlsx", include_in_schema=False)
-    def exportar_ri(projeto_id: str) -> Response:
+    def exportar_ir(projeto_id: str) -> Response:
         projeto = projeto_ou_404(projeto_id)
         if projeto.eir is None:
-            raise NaoEncontradoError("Os requisitos de informação (RI) ainda não foram gerados.")
+            raise NaoEncontradoError("Os requisitos de informação (IR) ainda não foram gerados.")
         conteudo = c.exportador_eir.to_xlsx(projeto.eir, projeto)
-        return _anexo(conteudo, TIPO_XLSX, f"requisitos-informacao-{projeto.id}.xlsx")
+        return _anexo(conteudo, TIPO_XLSX, f"requisitos-informacao-ir-{projeto.id}.xlsx")
 
     # ------------------------------------------------------------------ IDS
 

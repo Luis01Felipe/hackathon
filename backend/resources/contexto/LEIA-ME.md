@@ -6,7 +6,7 @@ com autorização de uso.
 
 Como o sistema usa estes arquivos:
 
-- Na extração dos requisitos de informação (RI), o sistema escolhe só os
+- Na extração dos requisitos de informação (IR), o sistema escolhe só os
   parágrafos mais parecidos com o tópico do edital, até cerca de 6.000 caracteres
   por chamada. Assim o contexto ajuda sem inflar o prompt.
 - O texto vai ao LLM entre delimitadores, como **dado**. O LLM recebe a ordem de

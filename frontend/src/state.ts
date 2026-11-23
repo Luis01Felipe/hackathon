@@ -58,7 +58,7 @@ export function passoMaximo(e: Estado): Passo {
 export const PASSOS: { numero: Passo; titulo: string; descricao: string }[] = [
   { numero: 1, titulo: "Upload", descricao: "Edital, IFC e lições" },
   { numero: 2, titulo: "Tópicos", descricao: "O que verificar" },
-  { numero: 3, titulo: "Requisitos (RI)", descricao: "Uma pessoa aprova" },
+  { numero: 3, titulo: "Requisitos (IR)", descricao: "Uma pessoa aprova" },
   { numero: 4, titulo: "IDS", descricao: "Gerado por código" },
   { numero: 5, titulo: "Verificação", descricao: "Análises e lições" },
   { numero: 6, titulo: "Resultados", descricao: "Relatório, 3D e BCF" },
