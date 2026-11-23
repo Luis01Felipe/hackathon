@@ -1,0 +1,23 @@
+# EditalCheck para rodar na sua máquina.
+#
+#   docker compose -f docker-compose.local.yml up --build
+#
+# Depois abra http://localhost:8000.
+# Sem .env, roda no modo offline (regras determinísticas, sem IA). Para usar o Gemini,
+# copie .env.example para .env e preencha GEMINI_API_KEY.
+# Os projetos ficam só na memória: parar o contêiner apaga tudo.
+
+services:
+  editalcheck:
+    build:
+      context: .
+      dockerfile: py3_12-ifcopenshell.Dockerfile
+      args:
+        # Local, o app fica na raiz (sem o prefixo de um proxy).
+        BASE_PATH: /
+    image: editalcheck:local
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
