@@ -4,7 +4,7 @@
 > Versão 2.0 · 22/11/2026
 > Base: [especificação v1.0](especificacao-tecnica.md) e código da `main` (commit `d11a9e8`)
 > Fontes: transcrições "importante.mp3" (59:06) e "importante 2.mp3" (17:10), gravadas na apresentação do protótipo à banca organizadora
-> Status: proposta para desenvolvimento. Decisões em aberto na seção 13.
+> Status: **implementada em 23/11/2026** (seção 17). Decisões do time na seção 13.
 
 ---
 
@@ -26,6 +26,7 @@
 14. Riscos novos
 15. Mensagens para o pitch
 16. Fora do escopo e roadmap
+17. Status da implementação
 
 ---
 
@@ -133,28 +134,28 @@ Use esta frase na tela inicial, no relatório, no README e no pitch.
 
 A banca apontou a nomenclatura como o ponto fraco (FB-24). Regras:
 
-1. **Mantenha o termo EIR**, mas explique o uso sempre que ele aparecer pela primeira vez numa tela, no relatório ou num slide.
-2. Texto padrão: "**EIR (requisitos de informação para troca)**: o que o contratante exige que o modelo contenha em cada entrega deste contrato. Aqui ele é extraído do edital."
-3. Quando o EIR cobrir o contrato inteiro, rotule como "**EIR do contrato**". Quando cobrir um marco, rotule como "**EIR · <marco>**".
+1. **Decisão do time (D7):** o termo da interface passa a ser **"requisitos de informação (RI)"**, mais genérico que EIR.
+2. Texto padrão: "**Requisitos de informação (RI)**: o que o contratante exige que o modelo contenha em cada entrega deste contrato. Aqui eles são extraídos do edital e das lições aprendidas."
+3. O IDS informa o escopo no campo `milestone`: "Contrato inteiro" ou o nome do marco.
 4. Não chame as três análises de "validadores" (FB-17). Use "Análise A — Conformidade", "Análise B — Qualidade do edital" e "Análise C — Cobertura".
-5. A decisão final do termo depende da fala dos organizadores em 23/11/2026 sobre PIR, AIR e EIR (T2 0:00:22). Ver D7.
+5. No código, a entidade continua se chamando `Eir`, e as rotas `/eir` seguem aceitas como alias de `/ri`. A troca interna fica para depois do hackathon, para não arriscar a demo.
 
 ### 4.4 Glossário (exibido na interface e no relatório)
 
 | Termo | Definição curta | Referência |
 |---|---|---|
-| **OIR / PIR / AIR / EIR** | Requisitos de informação da organização, do projeto, do ativo e para troca | ISO 19650-1 [confirmar versão e adoção ABNT] |
-| **Marco de entrega** | Momento em que o contratado entrega informação ao contratante | ISO 19650 [confirmar] |
-| **IDM** | Método para descrever processos, atores e trocas de informação | ISO 29481 [confirmar partes e versões] |
+| **OIR / PIR / AIR / EIR** | Requisitos de informação da organização, do projeto, do ativo e para troca | ISO 19650-1:2018; no Brasil, ABNT NBR ISO 19650-1:2022 (errata de 2024) |
+| **Marco de entrega** | Momento em que o contratado entrega informação ao contratante | ISO 19650-2:2018; ABNT NBR ISO 19650-2:2022 |
+| **IDM** | Método para descrever processos, atores e trocas de informação | ISO 29481-1:2025 (3ª edição, metodologia e formato) |
 | **IDS** | Arquivo que define, de forma verificável por máquina, a informação exigida no modelo | buildingSMART, IDS 1.0 |
 | **IFC** | Formato aberto do modelo BIM | ISO 16739 [confirmar versão] |
 | **BCF** | Formato aberto para comunicar problemas ligados a elementos do modelo | buildingSMART, BCF 2.1 |
 | **bSDD** | Dicionário de dados aberto da buildingSMART | buildingSMART |
 | **Pset** | Conjunto de propriedades de um elemento IFC | IFC |
-| **Nível de informação necessária** | Quanta informação cada entrega exige | EN 17412-1 (CEN), segundo a banca; existe também a ISO 7817-1 [confirmar qual adotar] |
-| **Sistema de classificação** | Tabelas para classificar elementos e informações da construção | ABNT NBR 15965 [confirmar partes vigentes] |
+| **Nível de informação necessária** | Quanta informação cada entrega exige | ISO 7817-1:2024, que substituiu a EN 17412-1:2020 (CEN) |
+| **Sistema de classificação** | Tabelas para classificar elementos e informações da construção | ABNT NBR 15965, série em partes (ex.: Parte 1:2011, Parte 7:2015); a lista completa de partes vigentes não foi confirmada |
 
-> Não reproduza texto de norma ISO, CEN ou ABNT no repositório. As definições acima são do time e precisam ser conferidas no documento oficial.
+> Não reproduza texto de norma ISO, CEN ou ABNT no repositório. As definições acima são do time. As versões foram conferidas em catálogos públicos (ISO, CBIC, distribuidores) em 22/11/2026; confirme a vigência no catálogo oficial antes de citar em contrato.
 
 ### 4.5 IDM explícito (FB-23)
 
@@ -237,8 +238,8 @@ A numeração continua a da v1.0. Os novos requisitos começam em RF-100.
 | ID | Requisito | Prioridade |
 |---|---|---|
 | RF-100 | Aceitar um documento de lições aprendidas como quarta entrada, opcional, no upload | Must |
-| RF-101 | Formato preferido: planilha estruturada (XLSX ou CSV) com o modelo publicado em `data/modelos/licoes_aprendidas.xlsx`. Colunas: ID, título, regra, contexto (tipo de obra ou ambiente), classe IFC, filtro de nome, Pset, propriedade, restrição, origem (obra ou projeto), autor e data | Must |
-| RF-102 | Formato alternativo: PDF ou DOCX em texto livre. O LLM extrai as lições no mesmo schema. Cada lição extraída passa pela conferência S2 contra o documento de lições | Should |
+| RF-101 | **Decisão do time:** o campo "Informações adicionais" virou "Lições aprendidas" e aceita **TXT e PDF** (também `.md`). Sem LLM, cada item com regra (marcador, numeração ou parágrafo com "deve", "não pode" etc.) vira uma lição | Must |
+| RF-102 | Com LLM, a IA extrai as lições (título, regra, ambiente afetado, classe IFC). Cada lição cita um trecho literal do documento, conferido pela S2. Se nada conferir, o sistema usa as regras | Must |
 | RF-103 | Mostrar as lições na revisão do EIR, em bloco próprio, com origem e autor | Must |
 
 #### 5.3.2 Processamento
@@ -733,16 +734,16 @@ Pacotes de contexto e NBR 15965 (RF-142, RF-143), comparação de verificações
 
 | # | Decisão ou ponto | Padrão até haver resposta | Dono |
 |---|---|---|---|
-| D7 | Termo final: "EIR do contrato" ou outro, depois da fala dos organizadores sobre PIR, AIR e EIR em 23/11/2026 | "EIR do contrato", com explicação (seção 4.3) | Time |
-| D8 | Autorização para usar o EIR de referência da banca como contexto e a licença dele | Não usar sem autorização escrita | Luis Felipe |
-| D9 | TTL do modo efêmero | 2 horas | P2 |
-| D10 | Preço por milhão de tokens do modelo Gemini usado, com fonte e data | Mostrar só tokens | P1 |
-| D11 | Formato oficial do documento de lições aprendidas | Planilha (RF-101) | P4 |
-| D12 | Termos vigentes da API Gemini paga: uso para treino e prazo de retenção | Não afirmar no pitch até conferir | P1 |
-| D13 | A ABNT NBR 15965 está publicada no bSDD? | Tratar como `customizado` | P2 |
-| D14 | Versões vigentes de ISO 29481, NBR ISO 19650, EN 17412-1 / ISO 7817-1 e NBR 15965 | Citar sem número de versão e com "[confirmar]" | P4 |
-| D15 | Data e hora exatas do desligamento do servidor ("quarta-feira": 25/11/2026) | 25/11/2026 [confirmar] | Luis Felipe |
-| D16 | Referência completa do artigo sobre geração de IDS com IA a partir de IFC citado pelo time (T2 0:08:13) | Não citar no slide sem a referência | Time |
+| D7 | Termo final | **Decidido:** "requisitos de informação (RI)" | Time |
+| D8 | Uso do documento de teste da banca | **Liberado pela banca.** O arquivo ainda não está no repositório. Para usar como contexto, coloque-o em `backend/resources/contexto/`; para usar como demo, em `data/` | Time |
+| D9 | TTL do modo efêmero | 120 minutos (`EDITALCHECK_TTL_MIN`) | P2 |
+| D10 | Preço por milhão de tokens do modelo Gemini usado | **Em aberto.** Sem preço configurado, o painel mostra só os tokens medidos | P1 |
+| D11 | Formato do documento de lições aprendidas | **Decidido:** TXT ou PDF | Time |
+| D12 | API Gemini paga e treino de modelos | **Confirmado pelo time:** a API paga não usa os dados para treino. O aviso da interface diz isso | Time |
+| D13 | A ABNT NBR 15965 está publicada no bSDD? | **Em aberto.** Enquanto isso, classificações fora do bSDD saem como `customizado` | P2 |
+| D14 | Versões vigentes das normas | **Conferidas em catálogos públicos em 22/11/2026:** ISO 29481-1:2025; ISO 19650-1:2018 e ABNT NBR ISO 19650-1:2022; ISO 7817-1:2024 (substituiu a EN 17412-1:2020); NBR 15965 em partes, sem lista completa confirmada | P4 |
+| D15 | Data do desligamento do servidor | 25/11/2026 em `.env.deploy.example` (`EDITALCHECK_DISPONIVEL_ATE`) [confirmar] | Luis Felipe |
+| D16 | Artigo sobre geração de IDS com IA citado pelo time | **Pesquisado.** Candidatos: Ishigaki-IDS-Bench (arXiv:2605.22079), Ishigaki-IDS (arXiv:2606.08545) e Hosseini et al., capítulo da Taylor & Francis sobre mapeamento de linguagem natural para IFC na autoria de IDS. O time confirma qual foi lido | Time |
 
 ---
 
@@ -800,3 +801,34 @@ Tiradas do debate com a banca:
 - O código da `main` (commit `d11a9e8`) foi lido para separar o que já existe do que é novo. Exemplos: o armazenamento em `var/`, o cache em `.cache/`, os viewpoints por elemento no BCF e o mapeamento automático da versão IFC (`versao_ids`).
 - O campo "Informações adicionais" foi mostrado na demo (T1 0:39:01), mas não está na `main`. Ele foi especificado como novo (RF-141).
 - Nenhum número de custo, prazo ou norma foi inventado. O que não pôde ser conferido está marcado como **[confirmar]** ou consta da seção 13.
+
+---
+
+## 17. Status da implementação
+
+Implementado em 23/11/2026, com 78 testes automatizados passando e o fluxo completo conferido no navegador.
+
+| # | Mudança | Status | Onde |
+|---|---|---|---|
+| M1 | Modo efêmero, sem cache do LLM em disco, apagar dados, faixa de demonstração, aviso de IA, auditoria sem conteúdo | Feito | `adapters/storage/memory_repository.py`, `adapters/audit/`, `main.ts` |
+| M2 | Origem visível (EDITAL × MODELO) com cor e texto, seções no relatório, abas na tela | Feito | `domain/models.py` (`Apontamento.origem`), `relatorio.html.j2`, `resultados.ts` |
+| M3 | Nomenclatura RI, posicionamento e glossário | Feito | interface, relatório, XLSX, IDS |
+| M4 | Lições aprendidas em TXT ou PDF | Feito | `domain/licoes.py`, `importar_licoes.py`, prompts `licoes.md` e `licao_no_edital.md` |
+| M5 | Salvaguardas G1 a G4 | Feito | teste `test_licoes_nunca_removem_apontamentos` |
+| M6 | BCF com XYZ, pavimento, falha e exigência | Feito | `adapters/bcf/bcf_writer.py` |
+| M7 | IDM explícito | Feito | `docs/idm.md`, `purpose` e `milestone` no IDS |
+| M8 | Consumo de IA, custo por preço configurado, tempo manual medido | Feito (custo depende de D10; tempo manual depende da medição do time) | `application/consumo.py`, `resources/referencia_tempo_manual.yaml` |
+| M9 | Agrupar ambiguidades, verificação manual à parte, baixa recolhida, LLM só para alta e média | Feito | `domain/findings.py`, `gerar_relatorio.py`, `resultados.ts` |
+| M10 | Edital anotado e matriz de esclarecimentos com decisões | Feito | `adapters/pdf/annotator.py`, `XlsxClarificationExporter` |
+| M11 | Marcos de entrega e IDS por marco | Feito | `domain/marcos.py`, `gerar_ids.py`, telas de RI e IDS |
+| M12 | Versão IFC escolhida e versão exigida no edital | Feito | `domain/versao_ifc.py` |
+| M13 | Exemplos nos prompts e documentos de referência como contexto | Feito (falta colocar o documento da banca na pasta) | `adapters/contexto/referencias.py` |
+| M14 | Visualizador: isolar, mostrar tudo, XYZ no detalhe | Feito | `viewer.ts` |
+| M15 | Perfil de uso | Feito | seletor na tela de resultados |
+| M16 | Revisar edital sem IFC | Feito | `ModeloResumo.vazio`, `importar_documentos.py` |
+| M17 | Comparar verificações | Não feito (roadmap) | — |
+| M18 | Texto repetido e valores diferentes | Feito (ignora cabeçalhos e rodapés repetidos) | `domain/duplicidade.py` |
+| M19 | Desempenho | Parcial: menos chamadas (recomendação por IA só em alta e média) e paralelismo por tópico. Lotes de recomendação ficaram para depois | `gerar_relatorio.py` |
+| M20 | Linguagem acessível | Parcial: glossário na tela e no relatório | `labels.ts`, `html_writer.py` |
+
+**Além do planejado:** checagem geométrica simples nas lições. Elementos que a lição proíbe (ex.: janelas) e cuja caixa envolvente toca o ambiente citado entram no apontamento. Na demo, o sistema mostra as janelas J11 e J12 na sala de baterias.

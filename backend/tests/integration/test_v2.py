@@ -281,3 +281,24 @@ def test_medidor_atribui_consumo_ao_projeto_nas_threads() -> None:
         300,
         60,
     )
+
+
+def test_contexto_de_referencia_escolhe_trechos_dentro_do_orcamento(tmp_path: Path) -> None:
+    from editalcheck.adapters.contexto.referencias import ContextoReferencia
+
+    pasta = tmp_path / "contexto"
+    pasta.mkdir()
+    (pasta / "LEIA-ME.md").write_text("Este arquivo é ignorado pelo carregador de contexto. " * 5)
+    (pasta / "referencia.txt").write_text(
+        "As portas corta-fogo devem informar a resistência ao fogo no Pset_DoorCommon, "
+        "propriedade FireRating, em todas as entregas do contrato.\n\n"
+        "As lajes devem informar se são estruturais na propriedade LoadBearing, para a "
+        "fiscalização conferir o projeto estrutural em cada marco.\n\n"
+        "Texto curto.",
+        encoding="utf-8",
+    )
+    contexto = ContextoReferencia(pasta, orcamento=200)
+    assert contexto.documentos == ("referencia.txt",)
+    [(documento, trecho)] = contexto.select("5.1.1 Todas as portas deverão ter resistência ao fogo")
+    assert documento == "referencia.txt" and "portas corta-fogo" in trecho
+    assert contexto.select("texto sem relação nenhuma") == []

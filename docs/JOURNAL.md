@@ -60,3 +60,40 @@ Registro da jornada do time. Vira o slide de progresso do pitch.
 - [ ] Cronometrar o tempo manual equivalente (1 tópico).
 - [ ] Definir nome do time e do produto (D4) e a licença do repositório.
 - [ ] Gravar o vídeo de reserva da demo.
+
+## 23/11/2026 — v2, depois da conversa com a banca
+
+Fonte: as duas gravações da apresentação do protótipo à banca, consolidadas em [especificacao-tecnica-v2.md](especificacao-tecnica-v2.md).
+
+### Decisões
+
+- **RI no lugar de EIR.** A banca apontou a nomenclatura como ponto fraco. O time adotou "requisitos de informação (RI)", mais genérico. O código mantém a entidade `Eir` e aceita as rotas `/eir` como alias, para não arriscar a demo.
+- **Lições aprendidas como quarta entrada (PDCA).** O campo "informações adicionais" virou "lições aprendidas" e aceita TXT e PDF. Caso de referência da banca: o edital pedia iluminação natural em todos os ambientes, e janelas foram instaladas em salas de baterias.
+- **Salvaguardas contra abuso.** A banca alertou que ajustar a IA com as "decisões da empresa" permitiria mascarar problemas. As lições só acrescentam apontamentos. Dispensar um apontamento exige justificativa e ele continua no relatório.
+- **Modo efêmero por padrão.** O time disse à banca que nada fica no servidor, mas o código gravava projetos em `var/` e respostas do LLM em `.cache/`. Agora tudo fica em memória, com TTL de 120 minutos e botão para apagar. Só o log de auditoria (sem conteúdo) vai para o disco.
+- **Origem visível.** Cada apontamento é do EDITAL (contratante corrige) ou do MODELO (contratado corrige), com cor e texto.
+- **IDS por marco.** O edital da demo cita três marcos (estudo preliminar, anteprojeto, projeto executivo). O IDS pode cobrir o contrato inteiro ou um marco, com `milestone` e `purpose` preenchidos.
+- **BCF com coordenada.** A banca pediu a coordenada XYZ no BCF final. Cada comentário de viewpoint traz o centro e a caixa envolvente em metros.
+- **Gemini pago.** O time confirmou que a API paga não usa os dados para treino. O aviso da interface diz isso.
+
+### Tentativas que falharam e como resolvemos
+
+- A detecção de texto repetido marcou os rodapés "página 2 de 5" como cláusulas contraditórias. Agora ignora numeração de página e textos repetidos em 3 ou mais páginas.
+- A comparação de frases com um número diferente ("2,80 m" × "3,00 m") ficava abaixo do limite de similaridade. Os números passaram a ser comparados à parte, e o texto usa "#" no lugar deles.
+- O cabeçalho do documento de lições virou uma "lição". Agora só entram itens com regra ("deve", "não pode", "proibido" etc.).
+- A lição das portas, já exigida no edital, saía como ausente porque o texto do item inteiro diluía a comparação. A busca passou a usar só a primeira frase do item.
+- Os ambientes do IFC da demo são placas de 5 cm. A checagem de janelas no ambiente estende a altura do ambiente para 3 m.
+
+### Medições (modo offline, dados sintéticos)
+
+- Recall 100% (19/19), precisão 100% (19/19), checklist 10/10, ambiguidades 10/10. Pipeline completo pela CLI em menos de 1 s.
+- Apontamentos da demo: 26 do edital, 7 do modelo e 14 de verificação manual (com todos os tópicos relevantes selecionados).
+- Lições: 3 de 4 ausentes do edital. A da sala de baterias sai com severidade alta e aponta as janelas J11 e J12 no modelo.
+
+### Pendências
+
+- [ ] Colocar o documento de teste liberado pela banca em `backend/resources/contexto/` (contexto) ou `data/` (demo).
+- [ ] Configurar o preço do modelo Gemini (`LLM_PRECO_*`) com fonte e data.
+- [ ] Cronometrar o tempo manual e preencher `backend/resources/referencia_tempo_manual.yaml`.
+- [ ] Medir de novo as métricas com o Gemini e com um edital real.
+- [ ] Confirmar qual artigo sobre IA e IDS o time leu (candidatos no README).
