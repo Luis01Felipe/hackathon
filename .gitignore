@@ -8,8 +8,16 @@
 backend/.venv/
 __pycache__/
 *.pyc
+*.egg-info/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Documentos de referência licenciados: ficam só na máquina de quem tem a licença
+backend/resources/contexto/*
+!backend/resources/contexto/LEIA-ME.md
 
 # Dados de execução, cache do LLM/bSDD e saídas da CLI
 var/
@@ -22,7 +30,14 @@ saida-demo/
 frontend/node_modules/
 frontend/dist/
 
-# Ferramentas locais
+# Testes de ponta a ponta e logs
+test-results/
+playwright-report/
+*.log
+
+# Ferramentas locais e sistema
 .claude/
 .vscode/
 .idea/
+.DS_Store
+Thumbs.db

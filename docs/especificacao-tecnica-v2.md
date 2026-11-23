@@ -6,6 +6,10 @@
 > Fontes: transcrições "importante.mp3" (59:06) e "importante 2.mp3" (17:10), gravadas na apresentação do protótipo à banca organizadora
 > Status: **implementada em 23/11/2026** (seção 17). Decisões do time na seção 13.
 
+> **Documento histórico.** Este é o plano da v2, escrito antes da implementação. O que foi construído está
+> no [README](../README.md) e no [contrato da API](api.md). Itens deste plano que não foram feitos (ex.:
+> comparação entre verificações e `contexto_adicional`) aparecem marcados na tabela de rotas.
+
 ---
 
 ## Sumário
@@ -361,7 +365,7 @@ O caminho correto para corrigir o edital continua sendo: revisar o edital, envia
 | ID | Requisito | Prioridade |
 |---|---|---|
 | RF-195 | Registrar por etapa: chamadas, tokens de entrada, tokens de saída, chamadas servidas pelo cache e duração. Usar os metadados de uso devolvidos pela API do Gemini | Must |
-| RF-196 | Calcular o custo estimado com preços **configurados** (`LLM_PRECO_ENTRADA_USD_MTOK`, `LLM_PRECO_SAIDA_USD_MTOK`, `LLM_PRECO_FONTE_DATA`). Sem preço configurado, mostrar só os tokens. Nunca usar preço fixo no código | Must |
+| RF-196 | Calcular o custo estimado com preços **configurados** (`LLM_PRECO_ENTRADA_USD_MTOK`, `LLM_PRECO_SAIDA_USD_MTOK`, `LLM_PRECO_FONTE`). Sem preço configurado, mostrar só os tokens. Nunca usar preço fixo no código | Must |
 | RF-197 | Painel "Custo e tempo" no relatório: tokens, custo estimado, tempo do pipeline e tempo manual **medido** pelo time, com a fonte e o tamanho da amostra | Must |
 
 > O tempo manual não pode ser estimado no código. A pessoa de BIM cronometra a tarefa em pelo menos um tópico, e o resultado vai para `backend/resources/referencia_tempo_manual.yaml`, com data, pessoa (papel, não nome) e método. A banca sugeriu "meses e semanas" só para entender um termo de referência (T2 0:15:32). Isso é opinião, não medição.
@@ -607,16 +611,16 @@ class ProjectRepository(Protocol):  # alterada
 | `PATCH` | `/api/verificacoes/{vid}/apontamentos/{apt_id}` | Registra a decisão (RF-150) |
 | `GET` | `/api/verificacoes/{vid}/edital-anotado.pdf` | Edital anotado (RF-151) |
 | `GET` | `/api/verificacoes/{vid}/esclarecimentos.xlsx` | Matriz de esclarecimentos (RF-152) |
-| `POST` | `/api/verificacoes/{vid}/comparacao` | Recebe o `relatorio.json` anterior e devolve a comparação (RF-185) |
-| `GET` | `/api/verificacoes/{vid}/consumo` | Tokens, duração e custo estimado por etapa (RF-195) |
+| `POST` | `/api/verificacoes/{vid}/comparacao` | Recebe o `relatorio.json` anterior e devolve a comparação (RF-185). **Não implementada** |
+| `GET` | `/api/projetos/{id}/consumo` | Tokens, duração e custo estimado por etapa (RF-195). Implementada por projeto, não por verificação |
 
 ### 9.2 Rotas alteradas
 
 | Rota | Mudança |
 |---|---|
-| `POST /api/projetos` | `modelo` opcional (RF-198); novos campos opcionais `licoes` (arquivo) e `contexto_adicional` (texto) |
+| `POST /api/projetos` | `modelo` opcional (RF-198); novo campo opcional `licoes` (arquivos). `contexto_adicional` **não foi implementado** |
 | `POST /api/projetos/{id}/ids` | Corpo: `{ "marco_id": str \| null, "versao_ifc": str \| null }` |
-| `POST /api/projetos/{id}/verificacoes` | Corpo: o mesmo escopo do IDS |
+| `POST /api/projetos/{id}/verificacoes` | Sem corpo: usa o escopo do último IDS gerado |
 | `GET /api/config` | Novos campos: `modo_dados`, `disponivel_ate`, `ttl_min` e `aviso_ia` |
 | `GET /api/verificacoes/{vid}/relatorio` | Novos campos: `origem` por apontamento, `decisoes`, `escopo`, `consumo` e `contexto_usado` |
 

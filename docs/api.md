@@ -5,9 +5,17 @@ Os nomes dos campos seguem as entidades de `backend/src/editalcheck/domain/model
 Enums são serializados pelo valor em minúsculas (ex.: `"aprovado"`, `"nao_conformidade"`).
 
 Erros: `{"detail": "mensagem em português"}` com status 400, 404, 409, 413 ou 422.
+Um erro não previsto responde `500` com `{"detail": "Erro interno do servidor. Código para o suporte: <código>."}`.
+O mesmo código vai no cabeçalho `X-Request-ID` e no log do servidor; o detalhe técnico não sai na resposta.
+
+**Cabeçalhos.** Toda resposta traz `X-Request-ID` (um id enviado pelo proxy, se válido, é mantido),
+`X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy` e `Permissions-Policy`.
+As páginas HTML (frontend e relatório) também trazem `Content-Security-Policy`.
+
+**Identificadores.** Ids de projeto e de verificação têm 32 caracteres hexadecimais (128 bits).
+Eles são o único controle de acesso: quem tem o id acessa os documentos do projeto.
 
 **Nomenclatura.** A interface usa **requisitos de informação (IR)**. As rotas usam o prefixo `/ir`.
-As rotas antigas com `/ri` e `/eir` continuam aceitas, fora da documentação OpenAPI, para compatibilidade.
 No código, a entidade continua se chamando `Eir`.
 
 **Dados.** No modo `efemero` (padrão), projetos, arquivos e relatórios ficam só em memória.
@@ -16,6 +24,10 @@ Depois disso, as rotas do projeto respondem `404`.
 
 ## Configuração
 
+### `GET /api/saude` → `{"status": "ok", "versao": "0.1.0"}`
+
+Usado pelo healthcheck do contêiner.
+
 ### `GET /api/config`
 
 ```json
@@ -23,7 +35,7 @@ Depois disso, as rotas do projeto respondem `404`.
   "demo_disponivel": true, "demo_com_licoes": true, "limite_upload_mb": 200,
   "modo_dados": "efemero", "ttl_min": 120, "disponivel_ate": "25/11/2026",
   "aviso_ia": "Trechos do edital e das lições aprendidas são enviados à API paga do Google Gemini...",
-  "documentos_contexto": ["referencia-ri.pdf"], "versoes_ifc": ["IFC2X3", "IFC4", "IFC4X3_ADD2"] }
+  "documentos_contexto": ["referencia-ir.pdf"], "versoes_ifc": ["IFC2X3", "IFC4", "IFC4X3_ADD2"] }
 ```
 
 - `modo_ia`: `"gemini"` com chave configurada; `"offline"` quando o sistema usa só regras.
@@ -45,8 +57,9 @@ Resposta `201` com `ProjetoResumo`:
 
 ```json
 {
-  "id": "a1b2c3d4", "criado_em": "2026-11-23T10:00:00", "edital_arquivo": "edital.pdf",
-  "modelo_arquivo": "modelo.ifc", "schema_ifc": "IFC4", "paginas": 5, "total_elementos": 133,
+  "id": "3f2a9c41b7e04d5c8a61f0e2d4b97c18", "criado_em": "2026-11-23T10:00:00-03:00",
+  "edital_arquivo": "edital.pdf", "modelo_arquivo": "modelo.ifc", "schema_ifc": "IFC4", "paginas": 5,
+  "total_elementos": 151,
   "classes": [{"nome": "IfcDoor", "contagem": 16, "especificavel": true}],
   "topicos_total": 18, "requisitos_total": 0, "ids_gerado": false, "avisos": ["..."],
   "modo_ia": "offline", "sem_modelo": false,
@@ -55,7 +68,8 @@ Resposta `201` com `ProjetoResumo`:
 }
 ```
 
-Erros: `422` para PDF sem texto, IFC ilegível ou lição em formato não aceito; `413` acima do limite.
+Erros: `422` para PDF sem texto, IFC ilegível, lição em formato não aceito ou mais de 10 lições;
+`413` para um arquivo acima de `limite_upload_mb` ou para arquivos que somam mais de 2 × `limite_upload_mb` + 50 MB.
 
 `LicaoAprendida`:
 
@@ -188,6 +202,9 @@ Corpo: `{"topicos": ["TOP-05", "TOP-06"]}`. Gera os IR dos tópicos e das liçõ
 
 Campos editáveis: `descricao`, `ifc_class`, `predefined_type`, `faceta`, `pset`, `propriedade`, `tipo_dado`, `restricao`, `cardinalidade`, `verificavel_por_ids`, `motivo_nao_verificavel`, `marcos`, `ambientes`, `item_checagem` e `verificacao`.
 Em `editar`, só os campos enviados mudam e o status vira `editado`. Ao enviar `verificacao`, o `verificavel_por_ids` passa a seguir o tipo escolhido.
+Um campo fora da lista responde `422`. Uma `restricao` do tipo `padrao` é recusada (`422`) se tiver mais de
+200 caracteres, não for uma expressão regular válida ou tiver quantificadores aninhados, como `(a+)+`,
+que podem travar a validação. Padrões assim vindos do LLM são removidos do requisito, com aviso.
 
 ### `POST /api/projetos/{id}/ir/aprovar-todos`
 
@@ -237,6 +254,8 @@ Corpo (opcional): `{"marco_id": "MAR-03", "versao_ifc": "IFC4"}`. Sem corpo: con
 
 - Cada análise: `pendente | executando | concluida | falhou | ignorada`.
 - Sem modelo, `conformidade`, `cobertura` e `saude_modelo` vêm como `ignorada`. Sem lições, `licoes` também.
+- `409` se já houver uma verificação em andamento no mesmo projeto.
+- Se o projeto for apagado ou expirar durante a verificação, ela termina como `falhou`, com o motivo em `erro`.
 
 ### `GET /api/verificacoes/{vid}` → `Verificacao` (consultar a cada 1 s até `concluida` ou `falhou`)
 

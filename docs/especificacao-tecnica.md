@@ -5,6 +5,10 @@
 > Nome provisório do produto: **EditalCheck** (o time define o nome final)
 > Status: aprovada para desenvolvimento. Decisões em aberto na seção 17.
 
+> **Documento histórico.** Esta é a especificação escrita antes da implementação. O comportamento atual
+> está no [README](../README.md) e no [contrato da API](api.md). Partes daqui foram mudadas na
+> [v2](especificacao-tecnica-v2.md) e no código (ex.: o LLM é o Gemini e as rotas usam `/ir`).
+
 ---
 
 ## Sumário

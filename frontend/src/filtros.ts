@@ -24,7 +24,7 @@ export function reiniciarFiltros(): void {
 }
 
 /** Texto sem acento e em minúsculas, para a busca não depender de grafia. */
-export function normalizarBusca(texto: string): string {
+function normalizarBusca(texto: string): string {
   return texto
     .normalize("NFD")
     .replace(/\p{Mn}/gu, "")

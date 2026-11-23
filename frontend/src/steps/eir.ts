@@ -94,7 +94,7 @@ const VARIANTE_ORIGEM: Record<string, string> = {
   customizado: "media",
 };
 
-export const VARIANTE_VERIFICACAO: Record<TipoVerificacao, string> = {
+const VARIANTE_VERIFICACAO: Record<TipoVerificacao, string> = {
   ids: "sucesso",
   ids_script: "info",
   script: "media",
@@ -128,7 +128,7 @@ interface RotuloTopico {
 }
 
 /** Tópico de origem do requisito: número, título e caminho até a seção de nível 1. */
-export function rotuloTopico(topicoId: string, topicos: Topico[] | null): RotuloTopico {
+function rotuloTopico(topicoId: string, topicos: Topico[] | null): RotuloTopico {
   const especial = TOPICOS_ESPECIAIS[topicoId];
   if (especial) return { numero: "—", titulo: especial, caminho: especial };
   const porId = new Map((topicos ?? []).map((t) => [t.id, t]));

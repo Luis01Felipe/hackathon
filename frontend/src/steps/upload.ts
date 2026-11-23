@@ -5,7 +5,7 @@ import type { Ctx } from "../state";
 import type { ProjetoResumo, VersaoIfc } from "../types";
 import { avisos, badge, botao, carregando, erro, h, limpar, mensagemErro, num } from "../ui";
 
-export const POSICIONAMENTO =
+const POSICIONAMENTO =
   "O EditalCheck transforma as exigências do edital, escritas em linguagem natural, num contrato de dados " +
   "operacional: os requisitos de informação (IR) e o IDS. Depois, verifica o modelo IFC contra esse contrato " +
   "e o edital contra boas práticas, para que contratante e contratado cheguem a um consenso antes da obra.";

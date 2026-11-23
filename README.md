@@ -79,7 +79,7 @@ Salvaguardas contra alucinação (todas por código):
 
 ## Como rodar
 
-Pré-requisitos: Python 3.12 com [uv](https://docs.astral.sh/uv/) e Node.js 20 ou superior.
+Pré-requisitos: Python 3.12 com [uv](https://docs.astral.sh/uv/) e Node.js 20.19+ ou 22.12+ (exigência do Vite 7).
 
 1. Instale o backend:
 
@@ -109,27 +109,28 @@ Clique em **Usar dados de exemplo (com lições)** para rodar a demo. Ela inclui
 cd backend; uv run editalcheck demo
 ```
 
-Outros comandos: `topicos <pdf>`, `modelo <ifc>`, `pipeline --edital <pdf> --modelo <ifc> [--licoes <txt|pdf>] [--topicos 5.1,5.2] [--gabarito <json>]` e `gerar-demo`. O `pipeline` grava em `--saida` o relatório (JSON e HTML), o BCF, o IDS, a planilha dos IR, o edital anotado e a matriz de esclarecimentos.
+Outros comandos: `topicos <pdf>`, `modelo <ifc>`, `pipeline --edital <pdf> --modelo <ifc> [--licoes <txt|md|pdf>] [--topicos 5.1,5.2] [--gabarito <json>]` e `gerar-demo`. O `pipeline` grava em `--saida` o relatório (JSON e HTML), o BCF, o IDS, a planilha dos IR, o edital anotado e a matriz de esclarecimentos.
 
 ### Testes
 
 ```powershell
-cd backend; uv run pytest
+cd backend; uv run ruff check src tests; uv run pytest
 ```
+
+O CI (`.github/workflows/ci.yml`) roda o lint e os testes do backend, o build do frontend (com checagem de tipos) e o build da imagem Docker a cada push e pull request.
 
 Desenvolvimento do frontend com recarga automática: rode `npm run dev` em `frontend/`. O Vite redireciona `/api` para `127.0.0.1:8000`.
 
+Teste de ponta a ponta do visualizador 3D (precisa do Playwright e do servidor no ar): `node scripts/e2e-ida-e-volta.mjs` em `frontend/`.
+
 ## Deploy no servidor (Docker + Traefik)
 
-O deploy segue o padrão dos serviços da Atena:
-- O `docker-compose.yml` monta o repositório em `/workspace` e roda o backend direto do código (`python -m editalcheck.entrypoints.cli servidor`).
-- A imagem (`py3_12-ifcopenshell.Dockerfile`) guarda só o ambiente: Python 3.12, as dependências travadas no `uv.lock` e o frontend compilado.
-- O Traefik da rede `proxy` publica o app em **https://atena.construtivo.com/editalcheck/**.
+A imagem (`py3_12-ifcopenshell.Dockerfile`) é autocontida: Python 3.12 com as dependências travadas no `uv.lock`, o código do backend, os prompts, os recursos, os dados de demonstração e o frontend compilado. O contêiner não monta o repositório. O Traefik da rede `proxy` publica o app em **https://atena.construtivo.com/editalcheck/**.
 
 Como o roteamento funciona:
 - O roteador aceita `Host(APP_DOMAIN) && PathPrefix(/editalcheck)`, remove o prefixo (`stripprefix`) e repassa à porta 8000.
-- O frontend é compilado com `--base=/editalcheck/`. Assets, wasm, worker e chamadas à API ficam sob o prefixo.
-- `EDITALCHECK_ROOT_PATH=/editalcheck` faz o `/docs` da API funcionar atrás do proxy.
+- O frontend é compilado com `BASE_PATH=/editalcheck/`. Assets, wasm, worker e chamadas à API ficam sob o prefixo.
+- `EDITALCHECK_ROOT_PATH=/editalcheck` faz o `/docs` funcionar atrás do proxy (no deploy, o `/docs` fica desligado por `EDITALCHECK_DOCS=false`).
 
 Primeira instalação, no servidor:
 
@@ -147,27 +148,34 @@ cd hackathon
 cp .env.deploy.example .env.deploy && nano .env.deploy
 ```
 
-3. Suba o contêiner.
+3. Gere a imagem e suba o contêiner.
 
 ```bash
-docker compose up -d --build
+docker compose build && docker compose up -d
 ```
 
 Para atualizar depois de um merge:
 
 ```bash
-git pull && docker compose up -d --build --force-recreate
+git pull && docker compose build && docker compose up -d
 ```
 
-O `--force-recreate` reinicia o app com o backend novo, que vem do volume. O build só refaz o frontend ou as dependências quando eles mudam.
+Segurança do contêiner:
+- Roda com o usuário `app` (uid 1000), sem capabilities do Linux e sem escalada de privilégio.
+- O sistema de arquivos é só leitura. `/tmp` fica em memória (1 GB), e só dois volumes nomeados são graváveis: `auditoria` (log sem conteúdo do usuário) e `bsdd` (cache de dados públicos).
+- Limites padrão: 4 CPUs e 6 GB de memória. Ajuste com `EDITALCHECK_CPUS` e `EDITALCHECK_MEMORIA` num `.env` ao lado do compose.
+- Os logs do Docker giram a cada 10 MB (5 arquivos).
+- O backend envia cabeçalhos de segurança, com Content-Security-Policy nas páginas HTML.
+- Cada resposta traz um `X-Request-ID`. Um erro interno mostra esse código ao usuário, e o mesmo código aparece no log.
 
 Dicas:
 - **Logs:** `docker compose logs -f app`.
-- **Status:** `docker compose ps` mostra `healthy` quando `/api/config` responde.
-- **Dados:** o compose usa o modo efêmero. Projetos, arquivos e relatórios ficam só na memória do contêiner. No disco ficam apenas o log de auditoria sem conteúdo (`var/auditoria/`) e o cache do bSDD (`.cache/bsdd/`, dados públicos). Um reinício do contêiner apaga os projetos em andamento.
+- **Status:** `docker compose ps` mostra `healthy` quando `/api/saude` responde.
+- **Auditoria:** `docker compose exec app tail /app/var/auditoria/auditoria.jsonl`.
+- **Dados:** o compose fixa o modo efêmero. Projetos, arquivos e relatórios ficam só na memória do contêiner. Um reinício do contêiner apaga os projetos em andamento.
 - **Ambiente de demonstração (opcional):** `EDITALCHECK_DISPONIVEL_ATE` (DD/MM/AAAA) mostra uma data de desligamento na faixa do topo. Vazio, a faixa mostra só o aviso de que os dados ficam em memória.
 - **Uma réplica:** no modo efêmero, cada projeto vive na memória de um processo. Mantenha uma réplica ou a sessão fixa do Traefik (já configurada).
-- **Domínio:** o padrão é `atena.construtivo.com`. Para usar outro, defina `APP_DOMAIN` no ambiente ou num `.env` ao lado do compose.
+- **Domínio:** o padrão é `atena.construtivo.com`. Para usar outro, defina `APP_DOMAIN` num `.env` ao lado do compose.
 - **Outro prefixo:** troque `/editalcheck` nas labels, em `BASE_PATH` e em `EDITALCHECK_ROOT_PATH`.
 
 ## API
@@ -188,7 +196,7 @@ Nenhum dado de cliente, contrato ou projeto do Construtivo é usado.
 
 ## Métricas medidas (seção 14.3)
 
-Medidas em 22/11/2026 com `uv run editalcheck demo`, sobre os dados sintéticos (edital de 5 páginas e IFC de 151 elementos). Em 23/11/2026, depois da v2 e com as lições aprendidas, o modo offline foi medido de novo: recall 100% (19/19), precisão 100% (19/19), checklist 10/10, ambiguidade 10/10 e pipeline em menos de 1 s. Os requisitos vindos de lições ficam fora da métrica, porque o gabarito cobre só o edital. A coluna do Gemini não foi medida de novo após a v2.
+Medidas em 22/11/2026 com `uv run editalcheck demo`, sobre os dados sintéticos (edital de 5 páginas e IFC de 151 elementos, 18 deles ambientes). Em 23/11/2026, depois da v2 e com as lições aprendidas, o modo offline foi medido de novo: recall 100% (19/19), precisão 100% (19/19), checklist 10/10, ambiguidade 10/10 e pipeline em menos de 1 s. Os requisitos vindos de lições ficam fora da métrica, porque o gabarito cobre só o edital. A coluna do Gemini não foi medida de novo após a v2.
 
 | Métrica | Modo offline (regras) | Gemini (`gemini-4-hydrogen`) | Amostra |
 |---|---|---|---|
@@ -214,6 +222,8 @@ O "extra" do Gemini é a cláusula 6.1.1 ("a fiscalização verificará o modelo
 - O extrator por regras cobre o vocabulário de `backend/resources/vocabulario_pt.yaml`. Editais reais exigem o LLM.
 - A checklist e o léxico de termos vagos são autoria do time, inspirados na ISO 19650. Eles não substituem a análise jurídica do edital.
 - Os adaptadores de IA têm testes com cliente simulado, que usam os prompts reais. O Gemini (`gemini-4-hydrogen`) já respondeu em execuções reais da demo.
+- **Acesso:** não há login. O acesso a um projeto depende do id dele (128 bits, inviável de adivinhar por tentativa), que só o navegador de quem enviou os arquivos conhece. Autenticação e limite de requisições por usuário, se forem necessários, ficam a cargo do proxy (Traefik).
+- Os uploads têm limite por arquivo (`LIMITE_UPLOAD_MB`), por soma e por quantidade de lições. A leitura de PDF e IFC roda no próprio processo, sem isolamento de recursos. Arquivos de origem desconhecida devem passar antes por um antivírus.
 
 ## Licenças
 

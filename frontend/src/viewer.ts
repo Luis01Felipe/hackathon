@@ -42,7 +42,7 @@ function material(cor: THREE.Color, opacidade = 1): FRAGS.MaterialDefinition {
   };
 }
 
-export interface EscolhaElemento {
+interface EscolhaElemento {
   globalId: string | null;
   localId: number;
 }

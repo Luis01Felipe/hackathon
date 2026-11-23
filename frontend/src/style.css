@@ -976,12 +976,6 @@ textarea {
   color: var(--muted);
 }
 
-.col-voc,
-.col-verif {
-  display: table-cell;
-}
-
-.col-voc .badge,
 .col-verif .badge {
   margin-bottom: 4px;
 }
