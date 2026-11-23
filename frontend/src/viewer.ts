@@ -40,6 +40,7 @@ export class Viewer3D {
   private todos: number[] = [];
   private selecionados: number[] = [];
   private transparencia = true;
+  private isolado = false;
   private inicioToque = { x: 0, y: 0 };
   private descartado = false;
 
@@ -85,10 +86,16 @@ export class Viewer3D {
     return viewer;
   }
 
-  async carregarIfc(url: string, aoProgredir?: (fracao: number) => void): Promise<void> {
-    const resposta = await fetch(url);
-    if (!resposta.ok) throw new Error(`Não foi possível baixar o IFC (HTTP ${resposta.status}).`);
-    const bytes = new Uint8Array(await resposta.arrayBuffer());
+  /** Carrega o IFC de uma URL ou de um arquivo já escolhido no navegador (sem novo download). */
+  async carregarIfc(fonte: string | File, aoProgredir?: (fracao: number) => void): Promise<void> {
+    let bytes: Uint8Array;
+    if (typeof fonte === "string") {
+      const resposta = await fetch(fonte);
+      if (!resposta.ok) throw new Error(`Não foi possível baixar o IFC (HTTP ${resposta.status}).`);
+      bytes = new Uint8Array(await resposta.arrayBuffer());
+    } else {
+      bytes = new Uint8Array(await fonte.arrayBuffer());
+    }
     const loader = this.components.get(OBC.IfcLoader);
     await loader.setup({
       autoSetWasm: false,
@@ -144,6 +151,35 @@ export class Viewer3D {
   async limparSelecao(): Promise<void> {
     this.selecionados = [];
     await this.pintar();
+  }
+
+  /** Esconde tudo o que não pertence ao apontamento e enquadra o que sobrou (RF-181). */
+  async isolar(globalIds: string[]): Promise<number> {
+    const model = this.model;
+    if (!model) return 0;
+    const ids = globalIds
+      .map((g) => this.guidParaLocal.get(g))
+      .filter((id): id is number => id !== undefined);
+    if (!ids.length) return 0;
+    await model.setVisible(undefined, false);
+    await model.setVisible(ids, true);
+    this.isolado = true;
+    this.selecionados = ids;
+    await this.pintar();
+    await this.world.camera.fitToItems({ [model.modelId]: new Set(ids) });
+    return ids.length;
+  }
+
+  async mostrarTudo(): Promise<void> {
+    const model = this.model;
+    if (!model || !this.isolado) return;
+    await model.resetVisible();
+    this.isolado = false;
+    await this.fragments.core.update(true);
+  }
+
+  get estaIsolado(): boolean {
+    return this.isolado;
   }
 
   async enquadrarTudo(): Promise<void> {

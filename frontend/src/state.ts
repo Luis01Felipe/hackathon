@@ -20,6 +20,8 @@ export interface Estado {
   verificacao: Verificacao | null;
   relatorio: Relatorio | null;
   passo: Passo;
+  /** IFC escolhido no navegador: o 3D usa este arquivo e não o baixa de volta (RF-097). */
+  ifcLocal: File | null;
 }
 
 export interface Ctx {
@@ -39,6 +41,7 @@ export function estadoInicial(config: Config | null = null): Estado {
     verificacao: null,
     relatorio: null,
     passo: 1,
+    ifcLocal: null,
   };
 }
 
@@ -53,10 +56,10 @@ export function passoMaximo(e: Estado): Passo {
 }
 
 export const PASSOS: { numero: Passo; titulo: string; descricao: string }[] = [
-  { numero: 1, titulo: "Upload", descricao: "Edital PDF e modelo IFC" },
+  { numero: 1, titulo: "Upload", descricao: "Edital, IFC e lições" },
   { numero: 2, titulo: "Tópicos", descricao: "O que verificar" },
-  { numero: 3, titulo: "Revisão do EIR", descricao: "Projetista aprova" },
+  { numero: 3, titulo: "Requisitos (RI)", descricao: "Uma pessoa aprova" },
   { numero: 4, titulo: "IDS", descricao: "Gerado por código" },
-  { numero: 5, titulo: "Verificação", descricao: "3 análises" },
+  { numero: 5, titulo: "Verificação", descricao: "Análises e lições" },
   { numero: 6, titulo: "Resultados", descricao: "Relatório, 3D e BCF" },
 ];

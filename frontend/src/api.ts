@@ -2,13 +2,19 @@
 import type {
   AcaoRequisito,
   Config,
+  ConsumoEtapa,
+  Decisao,
   EirResposta,
   IdsResposta,
+  LicaoAprendida,
+  MarcoEntrega,
   ProjetoResumo,
   Relatorio,
   Requisito,
+  StatusDecisao,
   Topico,
   Verificacao,
+  VersaoIfc,
 } from "./types";
 
 /**
@@ -81,44 +87,73 @@ const enc = encodeURIComponent;
 export const api = {
   config: () => request<Config>("GET", "/api/config"),
 
-  criarProjeto: (edital: File, modelo: File) => {
+  criarProjeto: (edital: File, modelo: File | null, licoes: File[], versaoIfc: VersaoIfc | null) => {
     const form = new FormData();
     form.append("edital", edital);
-    form.append("modelo", modelo);
+    if (modelo) form.append("modelo", modelo);
+    for (const arquivo of licoes) form.append("licoes", arquivo);
+    if (!modelo && versaoIfc) form.append("versao_ifc", versaoIfc);
     return request<ProjetoResumo>("POST", "/api/projetos", form);
   },
-  criarProjetoDemo: () => request<ProjetoResumo>("POST", "/api/projetos/demo"),
+  criarProjetoDemo: (comLicoes = true) =>
+    request<ProjetoResumo>("POST", `/api/projetos/demo?com_licoes=${comLicoes}`),
   projeto: (id: string) => request<ProjetoResumo>("GET", `/api/projetos/${enc(id)}`),
+  apagarProjeto: (id: string) => request<void>("DELETE", `/api/projetos/${enc(id)}`),
   topicos: (id: string) => request<Topico[]>("GET", `/api/projetos/${enc(id)}/topicos`),
+  consumo: (id: string) => request<ConsumoEtapa[]>("GET", `/api/projetos/${enc(id)}/consumo`),
 
-  gerarEir: (id: string, topicos: string[]) =>
-    request<EirResposta>("POST", `/api/projetos/${enc(id)}/eir`, { topicos }),
-  eir: (id: string) => request<EirResposta>("GET", `/api/projetos/${enc(id)}/eir`),
+  enviarLicoes: (id: string, arquivos: File[]) => {
+    const form = new FormData();
+    for (const arquivo of arquivos) form.append("licoes", arquivo);
+    return request<{ licoes: LicaoAprendida[]; avisos: string[]; descartadas: number }>(
+      "POST",
+      `/api/projetos/${enc(id)}/licoes`,
+      form,
+    );
+  },
+  definirMarcos: (id: string, marcos: { id?: string | null; nome: string; descricao?: string }[]) =>
+    request<MarcoEntrega[]>("PUT", `/api/projetos/${enc(id)}/marcos`, { marcos }),
+
+  gerarRi: (id: string, topicos: string[]) =>
+    request<EirResposta>("POST", `/api/projetos/${enc(id)}/ri`, { topicos }),
+  ri: (id: string) => request<EirResposta>("GET", `/api/projetos/${enc(id)}/ri`),
   atualizarRequisito: (id: string, reqId: string, acao: AcaoRequisito) =>
-    request<Requisito>("PATCH", `/api/projetos/${enc(id)}/eir/requisitos/${enc(reqId)}`, acao),
+    request<Requisito>("PATCH", `/api/projetos/${enc(id)}/ri/requisitos/${enc(reqId)}`, acao),
   aprovarTodos: (id: string, somenteVerificaveis: boolean) =>
-    request<EirResposta>("POST", `/api/projetos/${enc(id)}/eir/aprovar-todos`, {
+    request<EirResposta>("POST", `/api/projetos/${enc(id)}/ri/aprovar-todos`, {
       somente_verificaveis: somenteVerificaveis,
     }),
   adicionarDeLacuna: (id: string, verificacaoId: string, apontamentoId: string) =>
-    request<Requisito[]>("POST", `/api/projetos/${enc(id)}/eir/requisitos`, {
+    request<Requisito[]>("POST", `/api/projetos/${enc(id)}/ri/requisitos`, {
       verificacao_id: verificacaoId,
       apontamento_id: apontamentoId,
     }),
 
-  gerarIds: (id: string) => request<IdsResposta>("POST", `/api/projetos/${enc(id)}/ids`),
+  gerarIds: (id: string, marcoId: string | null, versaoIfc: VersaoIfc | null) =>
+    request<IdsResposta>("POST", `/api/projetos/${enc(id)}/ids`, {
+      marco_id: marcoId,
+      versao_ifc: versaoIfc,
+    }),
 
   iniciarVerificacao: (id: string) =>
     request<Verificacao>("POST", `/api/projetos/${enc(id)}/verificacoes`),
   verificacao: (vid: string) => request<Verificacao>("GET", `/api/verificacoes/${enc(vid)}`),
   relatorio: (vid: string) => request<Relatorio>("GET", `/api/verificacoes/${enc(vid)}/relatorio`),
+  decidir: (vid: string, aptId: string, status: StatusDecisao, comentario: string, autor: string) =>
+    request<Decisao>("PATCH", `/api/verificacoes/${enc(vid)}/apontamentos/${enc(aptId)}`, {
+      status,
+      comentario,
+      autor,
+    }),
 };
 
 export const urls = {
-  eirXlsx: (id: string) => rota(`/api/projetos/${enc(id)}/eir.xlsx`),
+  riXlsx: (id: string) => rota(`/api/projetos/${enc(id)}/ri.xlsx`),
   idsXml: (id: string) => rota(`/api/projetos/${enc(id)}/ids.xml`),
   modeloIfc: (id: string) => rota(`/api/projetos/${enc(id)}/modelo.ifc`),
   relatorioJson: (vid: string) => rota(`/api/verificacoes/${enc(vid)}/relatorio`),
   relatorioHtml: (vid: string) => rota(`/api/verificacoes/${enc(vid)}/relatorio.html`),
   bcf: (vid: string) => rota(`/api/verificacoes/${enc(vid)}/resultado.bcf`),
+  editalAnotado: (vid: string) => rota(`/api/verificacoes/${enc(vid)}/edital-anotado.pdf`),
+  esclarecimentos: (vid: string) => rota(`/api/verificacoes/${enc(vid)}/esclarecimentos.xlsx`),
 };

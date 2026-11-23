@@ -1,9 +1,13 @@
-// Passo 6 — Resultados: painel, visualizador 3D, apontamentos e detalhe.
+// Passo 6 — Resultados: painel, visualizador 3D, apontamentos por origem, decisões e detalhe.
 import { api, urls } from "../api";
 import {
   ANALISE,
+  DECISAO,
   DESTINATARIO,
   ESTADO_ELEMENTO,
+  ORIGEM_INCONSISTENCIA,
+  PERFIL,
+  QUEM_CORRIGE,
   SEVERIDADE,
   STATUS_CHECKLIST,
   TIPO_APONTAMENTO,
@@ -14,13 +18,17 @@ import {
 import type { Ctx } from "../state";
 import type {
   Apontamento,
+  Decisao,
   ElementoRef,
   EstadoElemento,
   Evidencia,
   FalhaElemento,
+  Posicao,
   Relatorio,
   Requisito,
+  StatusDecisao,
 } from "../types";
+import { citacao } from "./eir";
 import {
   append,
   avisos,
@@ -48,7 +56,46 @@ export function descartarResultados(): void {
   viewer = null;
 }
 
-const filtros = { tipo: "todos", severidade: "todas", destinatario: "todos", busca: "" };
+type Aba = "edital" | "modelo" | "manual" | "todos";
+const filtros = { tipo: "todos", severidade: "todas", busca: "", mostrarBaixa: false, aba: "" as Aba | "" };
+const CHAVE_PERFIL = "editalcheck.perfil";
+const ABA_DO_PERFIL: Record<string, Aba> = {
+  contratante: "edital",
+  contratado_lider: "modelo",
+  contratado: "modelo",
+  verificador: "todos",
+};
+
+function lerPerfil(): string {
+  try {
+    return window.localStorage.getItem(CHAVE_PERFIL) ?? "verificador";
+  } catch {
+    return "verificador";
+  }
+}
+
+function salvarPerfil(perfil: string): void {
+  try {
+    window.localStorage.setItem(CHAVE_PERFIL, perfil);
+  } catch {
+    // preferência só desta sessão
+  }
+}
+
+function formatarXyz(p: Posicao | null | undefined): string | null {
+  if (!p) return null;
+  const f = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const [x, y, z] = p.centro;
+  return `X ${f(x)} · Y ${f(y)} · Z ${f(z)} m`;
+}
+
+function seloOrigem(apt: Apontamento): HTMLElement {
+  return h(
+    "span",
+    { class: `selo-origem origem-${apt.origem}`, title: QUEM_CORRIGE[apt.origem] },
+    apt.origem === "edital" ? "EDITAL" : "MODELO",
+  );
+}
 const ORDEM_SEVERIDADE: Record<string, number> = { alta: 0, media: 1, baixa: 2 };
 const VARIANTE_SEVERIDADE: Record<string, string> = { alta: "alta", media: "media", baixa: "baixa" };
 const VARIANTE_CHECKLIST: Record<string, string> = { presente: "sucesso", parcial: "media", ausente: "alta" };
@@ -71,7 +118,8 @@ function indexar(r: Relatorio): Indices {
   };
   for (const apt of r.apontamentos) {
     for (const el of apt.elementos) {
-      indices.elementos.set(el.global_id, el);
+      const anterior = indices.elementos.get(el.global_id);
+      indices.elementos.set(el.global_id, { ...anterior, ...el, posicao: el.posicao ?? anterior?.posicao ?? null });
       const lista = indices.aptsPorElemento.get(el.global_id) ?? [];
       lista.push(apt);
       indices.aptsPorElemento.set(el.global_id, lista);
@@ -109,6 +157,9 @@ export function renderResultados(ctx: Ctx): HTMLElement {
   const indices = indexar(relatorio);
   const projetoId = relatorio.projeto_id;
   const vid = relatorio.verificacao_id;
+  const decisoes = new Map<string, Decisao>(relatorio.decisoes.map((d) => [d.apontamento_id, d]));
+  let perfil = lerPerfil();
+  if (!filtros.aba) filtros.aba = relatorio.sem_modelo ? "edital" : ABA_DO_PERFIL[perfil] ?? "todos";
 
   // ---------------------------------------------------------------- detalhe
   const detalhe = h("aside", { class: "detalhe", "aria-live": "polite" });
@@ -137,12 +188,21 @@ export function renderResultados(ctx: Ctx): HTMLElement {
     selecionado = apt.id;
     marcarNaLista();
     limpar(detalhe);
-    detalhe.append(detalheApontamento(apt, indices, relatorio, {
+    detalhe.append(detalheApontamento(apt, indices, relatorio, decisoes.get(apt.id) ?? null, {
       focarElemento: (guid) => {
         void viewer?.focar([guid]);
         mostrarElemento(guid, false);
       },
+      isolar: () => void viewer?.isolar(apt.elementos.map((e) => e.global_id)),
       adicionarAoEir: () => void adicionarAoEir(apt),
+      decidir: async (status, comentario, autor) => {
+        const decisao = await api.decidir(vid, apt.id, status, comentario, autor);
+        if (decisao.status === "pendente") decisoes.delete(apt.id);
+        else decisoes.set(apt.id, decisao);
+        relatorio.decisoes = [...decisoes.values()];
+        toast(`Decisão registrada: ${rotulo(DECISAO, decisao.status)}.`, "sucesso");
+        desenharLista();
+      },
     }));
     if (focar3d && viewer && apt.elementos.length) {
       void viewer.focar(apt.elementos.map((e) => e.global_id));
@@ -160,9 +220,9 @@ export function renderResultados(ctx: Ctx): HTMLElement {
   const adicionarAoEir = async (apt: Apontamento) => {
     try {
       const novos = await api.adicionarDeLacuna(projetoId, vid, apt.id);
-      estado.eir = await api.eir(projetoId);
+      estado.eir = await api.ri(projetoId);
       estado.ids = null;
-      toast(`${novos.length} requisito(s) sugerido(s) adicionado(s) ao EIR para revisão.`, "sucesso");
+      toast(`${novos.length} requisito(s) sugerido(s) adicionado(s) aos RI para revisão.`, "sucesso");
       ctx.irPara(3);
     } catch (e) {
       toast(mensagemErro(e), "erro");
@@ -189,12 +249,46 @@ export function renderResultados(ctx: Ctx): HTMLElement {
       desenharLista();
     },
   );
-  const selectDestinatario = selectFiltro(
-    "Destinatário",
-    [["todos", "Todos os destinatários"], ["projetista", "Projetista"], ["contratante", "Contratante"]],
-    filtros.destinatario,
+  const contarAba = (aba: Aba) => relatorio.apontamentos.filter((a) => naAba(a, aba)).length;
+  const abas = h("div", { class: "abas", role: "tablist", "aria-label": "Onde corrigir" });
+  const desenharAbas = () => {
+    limpar(abas);
+    const opcoes: [Aba, string][] = [
+      ["edital", `Corrigir no edital · contratante (${contarAba("edital")})`],
+      ["modelo", `Corrigir no modelo · contratado (${contarAba("modelo")})`],
+      ["manual", `Verificação manual (${contarAba("manual")})`],
+      ["todos", `Todos (${relatorio.apontamentos.length})`],
+    ];
+    for (const [aba, texto] of opcoes) {
+      if (aba === "modelo" && relatorio.sem_modelo) continue;
+      abas.append(
+        h(
+          "button",
+          {
+            type: "button",
+            role: "tab",
+            class: `aba aba-${aba}${filtros.aba === aba ? " ativa" : ""}`,
+            "aria-selected": filtros.aba === aba ? "true" : "false",
+            onclick: () => {
+              filtros.aba = aba;
+              desenharAbas();
+              desenharLista();
+            },
+          },
+          texto,
+        ),
+      );
+    }
+  };
+  const selectPerfil = selectFiltro(
+    "Estou usando como",
+    Object.entries(PERFIL) as [string, string][],
+    perfil,
     (v) => {
-      filtros.destinatario = v;
+      perfil = v;
+      salvarPerfil(v);
+      filtros.aba = relatorio.sem_modelo ? "edital" : ABA_DO_PERFIL[v] ?? "todos";
+      desenharAbas();
       desenharLista();
     },
   );
@@ -209,21 +303,42 @@ export function renderResultados(ctx: Ctx): HTMLElement {
   const desenharLista = () => {
     limpar(listaApts);
     const termo = filtros.busca.trim().toLowerCase();
-    const visiveis = relatorio.apontamentos
+    const filtrados = relatorio.apontamentos
+      .filter((a) => naAba(a, filtros.aba || "todos"))
       .filter((a) => filtros.tipo === "todos" || a.tipo === filtros.tipo)
       .filter((a) => filtros.severidade === "todas" || a.severidade === filtros.severidade)
-      .filter((a) => filtros.destinatario === "todos" || a.destinatario === filtros.destinatario)
       .filter((a) => !termo || a.titulo.toLowerCase().includes(termo) || a.id.toLowerCase().includes(termo))
       .sort(
         (a, b) =>
           (ORDEM_SEVERIDADE[a.severidade] ?? 9) - (ORDEM_SEVERIDADE[b.severidade] ?? 9) || a.id.localeCompare(b.id),
       );
+    // RF-162: a severidade baixa fica recolhida, com contagem visível.
+    const recolher = filtros.severidade === "todas" && filtros.aba !== "manual" && !filtros.mostrarBaixa;
+    const baixas = filtrados.filter((a) => a.severidade === "baixa");
+    const visiveis = recolher ? filtrados.filter((a) => a.severidade !== "baixa") : filtrados;
     contagem.textContent = `${visiveis.length} de ${relatorio.apontamentos.length} apontamento(s)`;
-    if (!visiveis.length) {
+    if (!visiveis.length && !baixas.length) {
       listaApts.append(vazio("Nenhum apontamento com esses filtros."));
       return;
     }
-    for (const apt of visiveis) listaApts.append(cartaoApontamento(apt, () => mostrarApontamento(apt)));
+    for (const apt of visiveis) {
+      listaApts.append(cartaoApontamento(apt, decisoes.get(apt.id) ?? null, () => mostrarApontamento(apt)));
+    }
+    if (recolher && baixas.length) {
+      listaApts.append(
+        botao(`+ ${baixas.length} apontamento(s) de severidade baixa`, () => {
+          filtros.mostrarBaixa = true;
+          desenharLista();
+        }, "fantasma", { class: "btn btn-fantasma mostrar-baixa" }),
+      );
+    } else if (filtros.mostrarBaixa && baixas.length && filtros.severidade === "todas") {
+      listaApts.append(
+        botao("Recolher severidade baixa", () => {
+          filtros.mostrarBaixa = false;
+          desenharLista();
+        }, "fantasma", { class: "btn btn-fantasma mostrar-baixa" }),
+      );
+    }
     marcarNaLista();
   };
 
@@ -254,6 +369,12 @@ export function renderResultados(ctx: Ctx): HTMLElement {
         "div",
         { class: "viewer-acoes" },
         botaoTransparencia,
+        botao(
+          "Mostrar tudo",
+          () => void viewer?.mostrarTudo(),
+          "fantasma",
+          { class: "btn btn-fantasma btn-pequeno", title: "Desfaz o isolamento" },
+        ),
         botao("Enquadrar tudo", () => void viewer?.enquadrarTudo(), "fantasma", { class: "btn btn-fantasma btn-pequeno" }),
         botao(
           "Limpar seleção",
@@ -289,7 +410,7 @@ export function renderResultados(ctx: Ctx): HTMLElement {
           "div",
           { class: "acoes" },
           linkDownload("Relatório HTML", urls.relatorioHtml(vid)),
-          linkDownload("BCF das não conformidades", urls.bcf(vid)),
+          linkDownload("BCF dos apontamentos do modelo", urls.bcf(vid)),
         ),
       ),
     );
@@ -314,7 +435,7 @@ export function renderResultados(ctx: Ctx): HTMLElement {
       };
       limpar(overlay);
       overlay.append(carregando("Convertendo o IFC no navegador…"));
-      await v.carregarIfc(urls.modeloIfc(projetoId), (p) => {
+      await v.carregarIfc(estado.ifcLocal ?? urls.modeloIfc(projetoId), (p) => {
         const fracao = p > 1 ? p / 100 : p;
         overlay.querySelector(".carregando")?.replaceWith(
           carregando(`Convertendo o IFC no navegador… ${Math.round(fracao * 100)}%`),
@@ -329,7 +450,7 @@ export function renderResultados(ctx: Ctx): HTMLElement {
       planoB(mensagemErro(e));
     }
   };
-  requestAnimationFrame(() => void iniciarViewer());
+  if (!relatorio.sem_modelo) requestAnimationFrame(() => void iniciarViewer());
 
   // ---------------------------------------------------------------- montagem
   append(secao, [
@@ -343,39 +464,73 @@ export function renderResultados(ctx: Ctx): HTMLElement {
         h(
           "p",
           null,
-          `${relatorio.edital_arquivo} × ${relatorio.modelo_arquivo} (${relatorio.schema_ifc}) · gerado em ${dataHora(relatorio.gerado_em)} · `,
+          relatorio.sem_modelo
+            ? `${relatorio.edital_arquivo} · revisão do edital (sem modelo) · `
+            : `${relatorio.edital_arquivo} × ${relatorio.modelo_arquivo} (${relatorio.schema_ifc}) · `,
+          `escopo: ${relatorio.escopo}${relatorio.versao_ifc_ids ? ` (${relatorio.versao_ifc_ids})` : ""} · `,
+          `gerado em ${dataHora(relatorio.gerado_em)} · `,
           relatorio.modo_ia === "offline" ? "modo offline (regras)" : `IA: ${relatorio.modo_ia}`,
         ),
       ),
       h(
         "div",
         { class: "downloads" },
-        linkDownload("IDS", urls.idsXml(projetoId)),
-        linkDownload("BCF", urls.bcf(vid)),
-        h("a", { class: "btn btn-secundario", href: urls.relatorioHtml(vid), target: "_blank", rel: "noopener" }, "Relatório HTML"),
-        linkDownload("EIR (.xlsx)", urls.eirXlsx(projetoId)),
+        h("a", { class: "btn btn-primario", href: urls.relatorioHtml(vid), target: "_blank", rel: "noopener" }, "Relatório HTML"),
+        linkDownload("Edital anotado (PDF)", urls.editalAnotado(vid)),
+        linkDownload("Esclarecimentos (.xlsx)", urls.esclarecimentos(vid)),
+        relatorio.sem_modelo ? null : linkDownload("BCF", urls.bcf(vid)),
+        relatorio.sem_modelo ? null : linkDownload("IDS", urls.idsXml(projetoId)),
+        linkDownload("RI (.xlsx)", urls.riXlsx(projetoId)),
         linkDownload("JSON", urls.relatorioJson(vid)),
       ),
     ),
     painelIndicadores(relatorio),
     avisos(relatorio.avisos),
-    h("div", { class: "grade-resultados" }, blocoViewer, detalhe),
+    relatorio.sem_modelo
+      ? h("div", { class: "grade-resultados sem-modelo" }, detalhe)
+      : h("div", { class: "grade-resultados" }, blocoViewer, detalhe),
     h(
       "div",
       { class: "cartao" },
-      h("div", { class: "cartao-titulo" }, h("h3", null, "Apontamentos"), contagem),
-      h("div", { class: "barra-ferramentas" }, selectTipo, selectSeveridade, selectDestinatario, busca),
+      h(
+        "div",
+        { class: "cartao-titulo" },
+        h("h3", null, "Apontamentos"),
+        h("label", { class: "campo-inline" }, "Estou usando como: ", selectPerfil),
+        contagem,
+      ),
+      abas,
+      h("div", { class: "barra-ferramentas" }, selectTipo, selectSeveridade, busca),
       listaApts,
     ),
     secoesComplementares(relatorio),
-    h("div", { class: "acoes" }, botao("← Verificação", () => ctx.irPara(5), "fantasma"), botao("Revisar o EIR", () => ctx.irPara(3), "fantasma")),
+    h(
+      "div",
+      { class: "acoes" },
+      botao("← Verificação", () => ctx.irPara(5), "fantasma"),
+      botao("Revisar os RI", () => ctx.irPara(3), "fantasma"),
+    ),
   ]);
   detalheVazio();
+  desenharAbas();
   desenharLista();
   return secao;
 }
 
 // ==================================================================== componentes
+
+function naAba(apt: Apontamento, aba: Aba): boolean {
+  switch (aba) {
+    case "edital":
+      return apt.origem === "edital" && !apt.verificacao_manual;
+    case "modelo":
+      return apt.origem === "modelo";
+    case "manual":
+      return apt.verificacao_manual;
+    default:
+      return true;
+  }
+}
 
 function selectFiltro(
   rotuloTexto: string,
@@ -395,35 +550,62 @@ function selectFiltro(
 
 function painelIndicadores(r: Relatorio): HTMLElement {
   const i = r.indicadores;
-  const totalApts = r.apontamentos.length;
   const sev = i.apontamentos_por_severidade;
-  const dest = i.apontamentos_por_destinatario;
+  const origem = i.apontamentos_por_origem ?? {};
   return h(
     "div",
     { class: "indicadores" },
-    indicador(
-      "Conformidade do modelo",
-      pct(i.conformidade_percentual),
-      `${num(i.especificacoes_aprovadas)} de ${num(i.especificacoes_total)} especificações IDS aprovadas · ${num(i.elementos_nao_conformes)} de ${num(i.elementos_verificados)} elementos não conformes`,
-      i.conformidade_percentual,
+    h(
+      "div",
+      { class: "indicador indicador-origem origem-edital" },
+      h("span", { class: "indicador-rotulo" }, "Corrigir no edital"),
+      h("strong", { class: "indicador-valor" }, num(origem.edital ?? 0)),
+      h("small", null, "apontamentos para o contratante"),
     ),
-    indicador(
-      "Cobertura do edital",
-      pct(i.cobertura_percentual),
-      `${num(i.classes_cobertas)} de ${num(i.classes_especificaveis)} classes especificáveis do modelo têm requisito`,
-      i.cobertura_percentual,
-    ),
+    r.sem_modelo
+      ? null
+      : h(
+          "div",
+          { class: "indicador indicador-origem origem-modelo" },
+          h("span", { class: "indicador-rotulo" }, "Corrigir no modelo"),
+          h("strong", { class: "indicador-valor" }, num(origem.modelo ?? 0)),
+          h("small", null, "apontamentos para o contratado"),
+        ),
+    r.sem_modelo
+      ? null
+      : indicador(
+          "Conformidade do modelo",
+          pct(i.conformidade_percentual),
+          `${num(i.especificacoes_aprovadas)} de ${num(i.especificacoes_total)} especificações IDS aprovadas · ${num(i.elementos_nao_conformes)} de ${num(i.elementos_verificados)} elementos não conformes`,
+          i.conformidade_percentual,
+        ),
+    r.sem_modelo
+      ? null
+      : indicador(
+          "Cobertura do edital",
+          pct(i.cobertura_percentual),
+          `${num(i.classes_cobertas)} de ${num(i.classes_especificaveis)} classes especificáveis do modelo têm requisito`,
+          i.cobertura_percentual,
+        ),
     indicador(
       "Itens mínimos do edital",
       `${num(i.checklist_presentes)} de ${num(i.checklist_total)}`,
       `${num(i.checklist_parciais)} parcial(is) na checklist inspirada na ISO 19650`,
       i.checklist_total ? (i.checklist_presentes / i.checklist_total) * 100 : null,
     ),
+    i.licoes_total
+      ? h(
+          "div",
+          { class: "indicador" },
+          h("span", { class: "indicador-rotulo" }, "Lições aprendidas"),
+          h("strong", { class: "indicador-valor" }, `${num(i.licoes_nao_explicitas)} de ${num(i.licoes_total)}`),
+          h("small", null, "ausentes do edital"),
+        )
+      : null,
     h(
       "div",
       { class: "indicador" },
-      h("span", { class: "indicador-rotulo" }, "Apontamentos"),
-      h("strong", { class: "indicador-valor" }, num(totalApts)),
+      h("span", { class: "indicador-rotulo" }, "Severidade"),
       h(
         "div",
         { class: "chips-linha" },
@@ -431,18 +613,7 @@ function painelIndicadores(r: Relatorio): HTMLElement {
         badge(`Média ${num(sev.media ?? 0)}`, "media"),
         badge(`Baixa ${num(sev.baixa ?? 0)}`, "baixa"),
       ),
-      h(
-        "small",
-        null,
-        `Projetista ${num(dest.projetista ?? 0)} · Contratante ${num(dest.contratante ?? 0)}`,
-      ),
-    ),
-    h(
-      "div",
-      { class: "indicador" },
-      h("span", { class: "indicador-rotulo" }, "Verificação manual"),
-      h("strong", { class: "indicador-valor" }, num(i.requisitos_nao_verificaveis)),
-      h("small", null, `requisito(s) não verificável(is) por IDS · ${num(i.requisitos_aprovados)} aprovado(s) no EIR`),
+      h("small", null, `${num(i.verificacao_manual)} item(ns) de verificação manual, à parte`),
     ),
   );
 }
@@ -460,18 +631,34 @@ function indicador(titulo: string, valor: string, sub: string, percentual: numbe
   );
 }
 
-function cartaoApontamento(apt: Apontamento, aoClicar: () => void): HTMLElement {
-  const paginasTxt = [...new Set(apt.evidencias_edital.map((e) => e.pagina))].map((p) => `p. ${p}`).join(", ");
+const VARIANTE_DECISAO: Record<string, string> = {
+  aceito: "sucesso",
+  rejeitado: "alta",
+  em_discussao: "media",
+  dispensado: "neutro",
+};
+
+function cartaoApontamento(apt: Apontamento, decisao: Decisao | null, aoClicar: () => void): HTMLElement {
+  const paginasTxt = [...new Set(apt.evidencias_edital.filter((e) => e.fonte !== "licoes").map((e) => e.pagina))]
+    .map((p) => `p. ${p}`)
+    .join(", ");
   return h(
     "button",
-    { type: "button", class: `apontamento sev-${apt.severidade}`, "data-apt": apt.id, onclick: () => aoClicar() },
+    {
+      type: "button",
+      class: `apontamento sev-${apt.severidade} borda-${apt.origem}`,
+      "data-apt": apt.id,
+      onclick: () => aoClicar(),
+    },
     h(
       "div",
       { class: "apontamento-topo" },
+      seloOrigem(apt),
       badge(rotulo(SEVERIDADE, apt.severidade), VARIANTE_SEVERIDADE[apt.severidade] ?? "neutro"),
-      badge(rotulo(TIPO_APONTAMENTO, apt.tipo), "neutro"),
+      badge(rotulo(TIPO_APONTAMENTO, apt.tipo), apt.tipo === "licao_nao_explicita" ? "licao" : "neutro"),
       h("span", { class: "apontamento-id" }, apt.id),
       apt.gerado_por_ia ? badge("IA", "info", "Gerado por IA — revisar") : null,
+      decisao ? badge(rotulo(DECISAO, decisao.status), VARIANTE_DECISAO[decisao.status] ?? "neutro") : null,
     ),
     h("strong", { class: "apontamento-titulo" }, apt.titulo),
     h(
@@ -479,6 +666,7 @@ function cartaoApontamento(apt: Apontamento, aoClicar: () => void): HTMLElement 
       { class: "apontamento-meta" },
       `${rotulo(DESTINATARIO, apt.destinatario)} age`,
       apt.requisito_id ? ` · ${apt.requisito_id}` : "",
+      apt.licao_id ? ` · ${apt.licao_id}` : "",
       paginasTxt ? ` · Edital ${paginasTxt}` : "",
       apt.elementos.length ? ` · ${apt.elementos.length} elemento(s)` : "",
     ),
@@ -486,8 +674,62 @@ function cartaoApontamento(apt: Apontamento, aoClicar: () => void): HTMLElement 
 }
 
 function evidenciaBloco(ev: Evidencia, clausula?: string | null): HTMLElement {
-  const local = [clausula ? `item ${clausula}` : null, `p. ${ev.pagina}`].filter(Boolean).join(", ");
-  return h("blockquote", { class: "trecho" }, ev.trecho, h("cite", null, `Edital, ${local}`));
+  return h(
+    "blockquote",
+    { class: `trecho${ev.fonte === "licoes" ? " trecho-licao" : ""}` },
+    ev.trecho,
+    h("cite", null, citacao(ev, clausula)),
+  );
+}
+
+function blocoDecisao(
+  decisao: Decisao | null,
+  decidir: (status: StatusDecisao, comentario: string, autor: string) => Promise<void>,
+): HTMLElement {
+  const status = h(
+    "select",
+    { "aria-label": "Decisão" },
+    Object.entries(DECISAO).map(([valor, texto]) => h("option", { value: valor }, texto)),
+  );
+  status.value = decisao?.status ?? "pendente";
+  const comentario = h("textarea", {
+    rows: 2,
+    placeholder: "Comentário ou justificativa (obrigatória para rejeitar ou dispensar)",
+    "aria-label": "Comentário da decisão",
+    maxlength: "1000",
+  });
+  comentario.value = decisao?.comentario ?? "";
+  const autor = h("input", { type: "text", placeholder: "Quem decide (nome ou papel)", "aria-label": "Autor", maxlength: "120" });
+  autor.value = decisao?.autor ?? "";
+  const mensagem = h("div", null);
+  const salvar = h("button", { type: "button", class: "btn btn-secundario" }, "Registrar decisão");
+  salvar.addEventListener("click", async () => {
+    limpar(mensagem);
+    salvar.disabled = true;
+    try {
+      await decidir(status.value as StatusDecisao, comentario.value, autor.value);
+    } catch (e) {
+      mensagem.append(h("div", { class: "alerta alerta-erro" }, mensagemErro(e)));
+    } finally {
+      salvar.disabled = false;
+    }
+  });
+  return h(
+    "div",
+    { class: "detalhe-secao decisao" },
+    h("h4", null, "Decisão (registro de consenso)"),
+    h(
+      "p",
+      { class: "texto-suave" },
+      "A decisão não apaga o apontamento: um apontamento dispensado continua no relatório, com a justificativa.",
+    ),
+    status,
+    comentario,
+    autor,
+    h("div", { class: "acoes" }, salvar),
+    decisao?.data ? h("small", { class: "texto-suave" }, `Última decisão em ${dataHora(decisao.data)}`) : null,
+    mensagem,
+  );
 }
 
 function blocoRequisito(req: Requisito): HTMLElement {
@@ -506,7 +748,13 @@ function detalheApontamento(
   apt: Apontamento,
   indices: Indices,
   relatorio: Relatorio,
-  acoes: { focarElemento: (guid: string) => void; adicionarAoEir: () => void },
+  decisao: Decisao | null,
+  acoes: {
+    focarElemento: (guid: string) => void;
+    isolar: () => void;
+    adicionarAoEir: () => void;
+    decidir: (status: StatusDecisao, comentario: string, autor: string) => Promise<void>;
+  },
 ): HTMLElement {
   const req = apt.requisito_id ? indices.requisitos.get(apt.requisito_id) : undefined;
   const reqIds = new Set(apt.requisito_id ? [apt.requisito_id] : []);
@@ -521,12 +769,18 @@ function detalheApontamento(
     h(
       "div",
       { class: "detalhe-selos" },
+      seloOrigem(apt),
       badge(rotulo(SEVERIDADE, apt.severidade), VARIANTE_SEVERIDADE[apt.severidade] ?? "neutro"),
       badge(rotulo(TIPO_APONTAMENTO, apt.tipo), "neutro"),
       badge(rotulo(ANALISE, apt.analise), "neutro"),
     ),
     h("h3", null, h("span", { class: "texto-suave" }, `${apt.id} · `), apt.titulo),
-    h("p", { class: "quem-age" }, "Quem age: ", h("strong", null, rotulo(DESTINATARIO, apt.destinatario))),
+    h(
+      "p",
+      { class: `quem-age quem-age-${apt.origem}` },
+      h("strong", null, rotulo(QUEM_CORRIGE, apt.origem)),
+      ` — o problema está no ${rotulo(ORIGEM_INCONSISTENCIA, apt.origem).toLowerCase()}.`,
+    ),
     apt.gerado_por_ia || apt.referencia_a_confirmar
       ? h(
           "div",
@@ -545,28 +799,36 @@ function detalheApontamento(
         )
       : null,
     evidencias.length
-      ? h("div", { class: "detalhe-secao" }, h("h4", null, "Trecho do edital"), evidencias.map((ev) => evidenciaBloco(ev)))
+      ? h("div", { class: "detalhe-secao" }, h("h4", null, "Trechos de origem"), evidencias.map((ev) => evidenciaBloco(ev)))
       : null,
     elementos.length
       ? h(
           "div",
           { class: "detalhe-secao" },
           h("h4", null, `Elementos (${apt.elementos.length})`),
+          relatorio.sem_modelo
+            ? null
+            : h("div", { class: "acoes" }, botao("Isolar no 3D", () => acoes.isolar(), "secundario", {
+                class: "btn btn-secundario btn-pequeno",
+                title: "Esconde o resto do modelo e enquadra estes elementos",
+              })),
           h(
             "ul",
             { class: "lista-elementos" },
-            elementos.map((el) =>
-              h(
+            elementos.map((el) => {
+              const xyz = formatarXyz(el.posicao ?? indices.elementos.get(el.global_id)?.posicao);
+              return h(
                 "li",
                 null,
                 h(
                   "button",
                   { type: "button", class: "link-botao", onclick: () => acoes.focarElemento(el.global_id) },
-                  el.nome ?? "(sem nome)",
+                  el.nome_longo ?? el.nome ?? "(sem nome)",
                 ),
                 h("small", null, ` ${el.classe ?? ""} · `, h("code", null, el.global_id)),
-              ),
-            ),
+                xyz ? h("small", { class: "xyz" }, ` · ${xyz}`) : null,
+              );
+            }),
           ),
           apt.elementos.length > elementos.length
             ? h("small", { class: "texto-suave" }, `e mais ${apt.elementos.length - elementos.length} elemento(s)`)
@@ -611,11 +873,12 @@ function detalheApontamento(
       ? h(
           "div",
           { class: "acoes" },
-          botao("Adicionar ao EIR", () => acoes.adicionarAoEir(), "primario", {
-            title: "Cria requisitos sugeridos e volta à revisão do EIR",
+          botao("Adicionar aos RI", () => acoes.adicionarAoEir(), "primario", {
+            title: "Cria requisitos sugeridos e volta à revisão dos requisitos de informação",
           }),
         )
       : null,
+    blocoDecisao(decisao, acoes.decidir),
   );
 }
 
@@ -634,14 +897,20 @@ function detalheElemento(guid: string, indices: Indices, abrir: (apt: Apontament
         ? badge(rotulo(ESTADO_ELEMENTO, estadoEl), estadoEl === "conforme" ? "sucesso" : "alta")
         : badge("Sem requisito", "neutro"),
     ),
-    h("h3", null, info?.nome ?? "Elemento do modelo"),
+    h("h3", null, info?.nome_longo ?? info?.nome ?? "Elemento do modelo"),
     h(
       "dl",
       { class: "dados-elemento" },
       h("dt", null, "Classe"),
       h("dd", null, info?.classe ?? "—"),
+      info?.nome_longo && info?.nome ? h("dt", null, "Nome") : null,
+      info?.nome_longo && info?.nome ? h("dd", null, info.nome) : null,
       h("dt", null, "GlobalId"),
       h("dd", null, h("code", null, guid)),
+      info?.pavimento ? h("dt", null, "Pavimento") : null,
+      info?.pavimento ? h("dd", null, info.pavimento) : null,
+      info?.posicao ? h("dt", null, "Coordenada (centro)") : null,
+      info?.posicao ? h("dd", null, formatarXyz(info.posicao)) : null,
       info?.step_id ? h("dt", null, "Id no arquivo") : null,
       info?.step_id ? h("dd", null, `#${info.step_id}`) : null,
     ),
@@ -685,7 +954,7 @@ function detalheElemento(guid: string, indices: Indices, abrir: (apt: Apontament
           { class: "texto-suave" },
           estadoEl === "conforme"
             ? "O elemento atende a todos os requisitos do IDS aplicáveis a ele."
-            : "Nenhum requisito do EIR se aplica a este elemento.",
+            : "Nenhum requisito de informação (RI) se aplica a este elemento.",
         ),
   );
 }
@@ -807,5 +1076,141 @@ function secoesComplementares(r: Relatorio): HTMLElement {
         )
       : vazio("Nenhuma especificação IDS executada."),
   );
-  return h("div", { class: "complementares" }, ids, cobertura, checklist);
+  return h(
+    "div",
+    { class: "complementares" },
+    painelCusto(r),
+    blocoLicoesResultado(r),
+    r.sem_modelo ? null : ids,
+    r.sem_modelo ? null : cobertura,
+    checklist,
+  );
+}
+
+function blocoLicoesResultado(r: Relatorio): HTMLElement | null {
+  if (!r.licoes.length) return null;
+  const porId = new Map(r.verificacoes_licoes.map((v) => [v.licao_id, v]));
+  return h(
+    "details",
+    { class: "cartao detalhes-cartao", open: true },
+    h(
+      "summary",
+      null,
+      h("strong", null, "Lições aprendidas"),
+      ` · ${r.indicadores.licoes_nao_explicitas} de ${r.licoes.length} ausentes do edital`,
+    ),
+    h(
+      "div",
+      { class: "tabela-rolagem" },
+      h(
+        "table",
+        { class: "tabela compacta" },
+        h("thead", null, h("tr", null, h("th", null, "Lição"), h("th", null, "Regra"), h("th", null, "No edital?"))),
+        h(
+          "tbody",
+          null,
+          r.licoes.map((l) => {
+            const v = porId.get(l.id);
+            return h(
+              "tr",
+              null,
+              h("td", null, badge(l.id, "licao"), " ", l.titulo),
+              h("td", null, l.regra, h("small", { class: "texto-suave" }, ` (${l.documento}, p. ${l.evidencia.pagina})`)),
+              h(
+                "td",
+                null,
+                !v
+                  ? badge("Não avaliada", "neutro")
+                  : v.explicita
+                    ? [badge("Explícita", "sucesso"), v.evidencia ? h("small", null, ` p. ${v.evidencia.pagina}`) : null]
+                    : badge("Ausente", "alta"),
+              ),
+            );
+          }),
+        ),
+      ),
+    ),
+  );
+}
+
+const formatoUsd = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "USD", maximumFractionDigits: 4 });
+
+/** RF-195 a RF-197: tokens medidos, custo pelos preços configurados e tempo manual medido. */
+function painelCusto(r: Relatorio): HTMLElement {
+  const custo = r.custo;
+  const tempoIa = Object.values(r.duracoes_s).reduce((a, b) => a + b, 0);
+  const manual = r.tempo_manual;
+  return h(
+    "details",
+    { class: "cartao detalhes-cartao" },
+    h(
+      "summary",
+      null,
+      h("strong", null, "Custo e tempo"),
+      custo ? ` · ${num(custo.tokens_entrada + custo.tokens_saida)} tokens` : "",
+      custo?.usd !== null && custo?.usd !== undefined ? ` · ${formatoUsd.format(custo.usd)}` : "",
+    ),
+    r.consumo.length
+      ? h(
+          "div",
+          { class: "tabela-rolagem" },
+          h(
+            "table",
+            { class: "tabela compacta" },
+            h(
+              "thead",
+              null,
+              h("tr", null, h("th", null, "Etapa"), h("th", { class: "num" }, "Chamadas"), h("th", { class: "num" }, "Tokens de entrada"), h("th", { class: "num" }, "Tokens de saída"), h("th", { class: "num" }, "Tempo de IA")),
+            ),
+            h(
+              "tbody",
+              null,
+              r.consumo.map((c) =>
+                h(
+                  "tr",
+                  null,
+                  h("td", null, c.etapa),
+                  h("td", { class: "num" }, num(c.chamadas), c.chamadas_cache ? ` (+${num(c.chamadas_cache)} cache)` : ""),
+                  h("td", { class: "num" }, num(c.tokens_entrada)),
+                  h("td", { class: "num" }, num(c.tokens_saida)),
+                  h("td", { class: "num" }, `${num(c.duracao_s)} s`),
+                ),
+              ),
+            ),
+          ),
+        )
+      : h("p", { class: "texto-suave" }, "Sem chamadas de IA nesta verificação (modo de regras determinísticas)."),
+    h(
+      "dl",
+      { class: "metricas" },
+      h("div", { class: "metrica" }, h("dt", null, "Tempo das análises"), h("dd", null, `${num(tempoIa)} s`)),
+      h(
+        "div",
+        { class: "metrica" },
+        h("dt", null, "Custo estimado"),
+        h(
+          "dd",
+          null,
+          custo?.usd !== null && custo?.usd !== undefined
+            ? `${formatoUsd.format(custo.usd)} (fonte do preço: ${custo.fonte_preco || "não informada"})`
+            : "Configure o preço do modelo para calcular",
+        ),
+      ),
+      h(
+        "div",
+        { class: "metrica" },
+        h("dt", null, "Tempo manual equivalente"),
+        h(
+          "dd",
+          null,
+          manual?.medido && manual.horas !== null
+            ? `${num(manual.horas)} h medidas (${manual.amostra})`
+            : "Não medido pelo time",
+        ),
+      ),
+    ),
+    r.contexto_usado.length
+      ? h("p", { class: "texto-suave" }, `Documentos de referência usados como contexto: ${r.contexto_usado.join(", ")}.`)
+      : null,
+  );
 }

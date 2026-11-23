@@ -46,8 +46,13 @@ services:
       - APP_DOMAIN=${APP_DOMAIN:-atena.construtivo.com}
       # Prefixo removido pelo Traefik: o /docs da API usa para achar o /openapi.json.
       - EDITALCHECK_ROOT_PATH=/editalcheck
+      # Modo efêmero (RNF-11): edital, IFC, lições e relatórios ficam só na RAM do contêiner.
+      # Nada do usuário vai para disco; o cache do LLM fica desligado. Uma única réplica
+      # (ou sessão fixa no proxy, já configurada abaixo) atende cada projeto.
+      - EDITALCHECK_MODO_DADOS=efemero
     volumes:
-      # Código do repositório. Projetos e relatórios ficam em ./var e o cache do LLM em ./.cache.
+      # Código do repositório. No modo efêmero, o disco recebe só o log de auditoria sem
+      # conteúdo (./var/auditoria) e o cache do bSDD (dados públicos, ./.cache/bsdd).
       - ".:/workspace:rw"
     working_dir: /workspace
     command: [ "python", "-m", "editalcheck.entrypoints.cli", "servidor", "--host", "0.0.0.0", "--porta", "8000" ]
