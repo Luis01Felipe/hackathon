@@ -12,6 +12,9 @@ Regras:
   "3.2"), o sistema cria o agrupador implícito "Seção 4".
 - "ANEXO I – ..." (ou "APÊNDICE") abre um novo escopo: a numeração reinicia e
   os títulos numerados do anexo ficam abaixo dele.
+- As linhas do sumário impresso nunca viram títulos. Se o sumário tem entradas
+  suficientes, só abrem tópicos os números que constam nele, com título
+  compatível (ver ``sumario``).
 - Sem títulos reconhecidos, cada página vira um tópico.
 """
 
@@ -21,6 +24,7 @@ from dataclasses import dataclass, replace
 
 from editalcheck.domain.evidence import desifenizar, normalizar, remover_acentos
 from editalcheck.domain.models import Edital, Pagina, Topico
+from editalcheck.domain.sumario import Sumario, ler_sumario
 
 _NUMERADO = re.compile(r"^(\d{1,2})(?:\.(\d{1,2}))?\.?(?:\s*[-–—:])?\s+(.{3,100})$")
 _ANEXO = re.compile(
@@ -117,7 +121,8 @@ def _linhas(edital: Edital) -> list[_Linha]:
 class _Leitor:
     """Percorre as linhas e reconhece os títulos, mantendo o escopo da numeração."""
 
-    def __init__(self) -> None:
+    def __init__(self, sumario: Sumario) -> None:
+        self._sumario = sumario
         self.titulos: list[_Titulo] = []
         self._anexo: int | None = None
         self._secao: int | None = None
@@ -132,14 +137,31 @@ class _Leitor:
     def _base(self) -> int:
         return 1 if self._anexo is not None else 0
 
+    def _titulo_aceito(self, numero: str, titulo: str) -> str | None:
+        if not self._sumario.ativo:
+            return titulo
+        return self._sumario.titulo_conferido(numero, titulo)
+
+    def _titulo_implicito(self, maior: int) -> str:
+        if not self._sumario.ativo:
+            return f"Seção {maior}"
+        return self._sumario.titulo(str(maior)) or f"Seção {maior}"
+
     def anexo(self, indice: int, encontrado: re.Match[str]) -> None:
         tipo = encontrado.group(1).capitalize()
         numero = f"{tipo} {encontrado.group(2)}"
-        titulo = encontrado.group(3).strip() or numero
+        titulo = self._titulo_aceito(numero, encontrado.group(3).strip() or numero)
+        if titulo is None:
+            return
         self._anexo = self._adicionar(_Titulo(indice, numero, titulo, 1, None))
         self._secao, self._maior, self._menor = None, 0, 0
 
     def numerado(self, indice: int, maior: int, menor: int | None, titulo: str) -> None:
+        numero = str(maior) if menor is None else f"{maior}.{menor}"
+        aceito = self._titulo_aceito(numero, titulo)
+        if aceito is None:
+            return
+        titulo = aceito
         if menor is None:
             if maior <= self._maior:
                 return
@@ -154,14 +176,18 @@ class _Leitor:
             if menor > _MAX_SUBTOPICOS_IMPLICITOS:
                 return
             self._secao = self._adicionar(
-                _Titulo(None, str(maior), f"Seção {maior}", 1 + self._base, self._anexo)
+                _Titulo(
+                    None, str(maior), self._titulo_implicito(maior), 1 + self._base, self._anexo
+                )
             )
             self._maior = maior
-        self._adicionar(_Titulo(indice, f"{maior}.{menor}", titulo, 2 + self._base, self._secao))
+        self._adicionar(_Titulo(indice, numero, titulo, 2 + self._base, self._secao))
         self._menor = menor
 
     def ler(self, linhas: list[_Linha]) -> list[_Titulo]:
         for indice, linha in enumerate(linhas):
+            if indice in self._sumario.linhas:
+                continue
             anexo = _ANEXO.match(linha.texto)
             if anexo:
                 self.anexo(indice, anexo)
@@ -244,7 +270,8 @@ def segmentar(edital: Edital) -> list[Topico]:
     linhas = _linhas(edital)
     if not linhas:
         return []
-    titulos = _Leitor().ler(linhas)
+    sumario = ler_sumario([linha.texto for linha in linhas])
+    titulos = _Leitor(sumario).ler(linhas)
     if not titulos:
         return _por_pagina(edital)
 

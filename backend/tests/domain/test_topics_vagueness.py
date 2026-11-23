@@ -98,6 +98,73 @@ def test_anexo_reinicia_a_numeracao_e_agrupa_os_titulos() -> None:
     assert resultado[3].pai_id == resultado[2].id
 
 
+_PONTOS = "." * 60
+SUMARIO = (
+    "Sumário\n"
+    f"1. OBJETIVO{_PONTOS} 3\n"
+    f"2. DISPOSIÇÕES GERAIS{_PONTOS} 3\n"
+    f"2.1. DOCUMENTAÇÃO TÉCNICA DE PROJETO{_PONTOS} 3\n"
+    f"2.1.1. PROJETO DE CONCEPÇÃO{_PONTOS} 3\n"
+    "3. NORMAS, REQUISITOS TÉCNICOS E DE DESEMPENHO, REGULAMENTOS E LEGISLAÇÕES\n"
+    "A SEREM ATENDIDAS .. 4\n"
+    f"4. VIA PERMANENTE{_PONTOS} 4\n"
+    f"4.1. TRAÇADO{_PONTOS}4\n"
+    f"5. SAÍDASDE EMERGÊNCIA{_PONTOS} 4\n"
+)
+CORPO = (
+    "1. OBJETIVO\nDefinir os elementos básicos de projeto da linha.\n"
+    "2. DISPOSIÇÕES GERAIS\n2.1. DOCUMENTAÇÃO TÉCNICA DE PROJETO\n"
+    "2.1.1. PROJETO DE CONCEPÇÃO\nO projeto de concepção define as soluções.\n"
+    "ANEXO I – CONTROLE TECNOLÓGICO DOS MATERIAIS\n"
+    "4 CP's por peça ou bateria Aceitação/controle fck\n"
+    "3. NORMAS, REQUISITOS TÉCNICOS E DE DESEMPENHO, REGULAMENTOS E\n"
+    "Atender às normas ABNT vigentes na data da proposta.\n"
+    "4. VIA PERMANENTE\n4.1. TRAÇADO\nO traçado deve respeitar o raio mínimo de 300 m.\n"
+    "5. SAÍDAS DE EMERGÊNCIA\nAs saídas devem ter largura mínima de 1,20 m.\n"
+)
+
+
+def test_sumario_impresso_define_os_titulos() -> None:
+    edital = Edital("e.pdf", (Pagina(1, SUMARIO), Pagina(2, CORPO)))
+    resultado = topics.segmentar(edital)
+    assert [(t.numero, t.titulo) for t in resultado] == [
+        ("0", "Preâmbulo"),
+        ("1", "OBJETIVO"),
+        ("2", "DISPOSIÇÕES GERAIS"),
+        ("2.1", "DOCUMENTAÇÃO TÉCNICA DE PROJETO"),
+        (
+            "3",
+            "NORMAS, REQUISITOS TÉCNICOS E DE DESEMPENHO, REGULAMENTOS E LEGISLAÇÕES A SEREM ATENDIDAS",
+        ),
+        ("4", "VIA PERMANENTE"),
+        ("4.1", "TRAÇADO"),
+        ("5", "SAÍDAS DE EMERGÊNCIA"),
+    ]
+    assert resultado[0].pagina_fim == 1  # o sumário fica no preâmbulo
+    assert "ANEXO I" in resultado[3].texto and "CP's por peça" in resultado[3].texto
+
+
+def test_sumario_com_poucas_entradas_e_ignorado() -> None:
+    edital = Edital(
+        "e.pdf",
+        (
+            Pagina(1, f"Sumário\n2. DOS PRAZOS{_PONTOS} 2\n"),
+            Pagina(
+                2,
+                "1 DO OBJETO\n1.1.1 O objeto é o projeto da escola municipal.\n",
+            ),
+        ),
+    )
+    assert [t.numero for t in topics.segmentar(edital)] == ["0", "1"]
+
+
+def test_subtopico_sem_titulo_de_secao_usa_o_titulo_do_sumario() -> None:
+    corpo = CORPO.replace("4. VIA PERMANENTE\n", "")
+    edital = Edital("e.pdf", (Pagina(1, SUMARIO), Pagina(2, corpo)))
+    por_numero = {t.numero: t for t in topics.segmentar(edital)}
+    assert por_numero["4"].titulo == "VIA PERMANENTE" and por_numero["4"].agrupador
+
+
 def test_expandir_selecao_troca_agrupador_pelos_subtopicos() -> None:
     segmentados = topics.segmentar(EDITAL)
     por_numero = {t.numero: t for t in segmentados}
