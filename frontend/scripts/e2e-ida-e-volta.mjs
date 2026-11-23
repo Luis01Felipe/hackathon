@@ -18,11 +18,11 @@ const LIMITE_FLUXO_MS = 180_000;
 const LIMITE_MODELO_MS = 240_000;
 
 const BOTOES_AVANCO = [
-  /^Confirmar e gerar RI/,
+  /^Confirmar e gerar (RI|IR)/,
   /^Usar dados de exemplo/,
   /^Continuar para os tópicos →$/,
-  /^Conferir no edital e gerar RI \(\d+\) →$/,
-  /^Gerar requisitos \(RI\)$/,
+  /^Conferir no edital e gerar (RI|IR) \(\d+\) →$/,
+  /^Gerar requisitos \((RI|IR)\)$/,
   /^Gerar IDS →$/,
   /^Executar verificação →$/,
   /^Gerar IDS$/,
