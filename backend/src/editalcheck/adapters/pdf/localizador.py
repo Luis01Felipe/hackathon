@@ -24,6 +24,8 @@ from editalcheck.domain.models import Evidencia, FonteEvidencia, RegiaoPdf, Topi
 _MARCADOR_PAGINA = re.compile(r"^\[p\.\s*\d+\]$")
 _NAO_PALAVRA = re.compile(r"[^0-9a-z]+")
 MINIMO_PALAVRAS_PREFIXO = 6
+ZONA_CABECALHO = 0.06  # fração da altura: cabeçalhos e rodapés ficam fora das faixas
+ZONA_RODAPE = 0.93
 MAX_DOCUMENTOS_EM_CACHE = 4
 
 
@@ -194,7 +196,12 @@ class PyMuPdfLocalizador:
         faixas: list[RegiaoPdf] = []
         for indice in range(max(0, primeira), min(documento.page_count - 1, ultima) + 1):
             pagina = documento[indice]
-            palavras = _palavras(pagina)
+            altura = pagina.rect.height
+            palavras = [
+                p
+                for p in _palavras(pagina)
+                if ZONA_CABECALHO * altura < p.rect.y0 < ZONA_RODAPE * altura
+            ]
             if not palavras:
                 continue
             x0 = min(p.rect.x0 for p in palavras)

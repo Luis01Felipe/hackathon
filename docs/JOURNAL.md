@@ -97,3 +97,19 @@ Fonte: as duas gravações da apresentação do protótipo à banca, consolidada
 - [ ] Cronometrar o tempo manual e preencher `backend/resources/referencia_tempo_manual.yaml`.
 - [ ] Medir de novo as métricas com o Gemini e com um edital real.
 - [ ] Confirmar qual artigo sobre IA e IDS o time leu (candidatos no README).
+
+### Visualizador do edital (pedido do time)
+
+- **Decisão:** o visualizador fica dentro do app, só leitura, com pdf.js (`pdfjs-dist`, Apache-2.0). O relatório HTML ganhou o link "Ver no edital", e o PDF com as sugestões entrega o mesmo conteúdo sem o sistema.
+- **Dois usos:** a confirmação dos tópicos antes de gerar os RI (tópicos grifados; relevantes não selecionados tracejados) e a aba "Edital com os ajustes" nos resultados (PDF à esquerda, ajustes à direita).
+- **Localização por palavras:** a busca de texto do PyMuPDF não achava frases que quebram de linha (ex.: "W/(m²·K)"). O localizador agora compara sequências de palavras normalizadas e une as caixas por linha. O mesmo localizador alimenta a tela e o PDF baixado.
+- **PDF com as sugestões:** sumário com links, etiqueta na margem que volta ao sumário, links externos e índice lateral. Os apontamentos do modelo aparecem na cláusula de origem, em outra cor.
+
+Tentativas que falharam e como resolvemos:
+
+- O pdf.js 6 usa recursos novos de JavaScript. Passamos a carregar a versão "legacy", compatível com navegadores mais antigos.
+- Trocar para a aba Edital redesenhava a tela e descartava o 3D no meio do carregamento (erro no worker do That Open). As duas visões agora ficam montadas e só alternam a visibilidade.
+- A grade da aba Edital herdava `flex: 1` da tela de confirmação e crescia até o tamanho do documento. Corrigido com `flex: none`.
+- As faixas dos tópicos incluíam o rodapé. Cabeçalho e rodapé (6% e 7% da altura) ficam fora da faixa.
+- Na etiqueta de margem do PDF, a nota sobrescrevia o texto da etiqueta. A etiqueta agora só traz o código do apontamento.
+

@@ -806,7 +806,7 @@ Tiradas do debate com a banca:
 
 ## 17. Status da implementação
 
-Implementado em 23/11/2026, com 78 testes automatizados passando e o fluxo completo conferido no navegador.
+Implementado em 23/11/2026, com 81 testes automatizados passando e o fluxo completo conferido no navegador.
 
 | # | Mudança | Status | Onde |
 |---|---|---|---|
@@ -830,5 +830,8 @@ Implementado em 23/11/2026, com 78 testes automatizados passando e o fluxo compl
 | M18 | Texto repetido e valores diferentes | Feito (ignora cabeçalhos e rodapés repetidos) | `domain/duplicidade.py` |
 | M19 | Desempenho | Parcial: menos chamadas (recomendação por IA só em alta e média) e paralelismo por tópico. Lotes de recomendação ficaram para depois | `gerar_relatorio.py` |
 | M20 | Linguagem acessível | Parcial: glossário na tela e no relatório | `labels.ts`, `html_writer.py` |
+
+| M21 | Visualizador do edital (só leitura): confirmação dos tópicos antes de gerar os RI e aba "Edital com os ajustes" nos resultados, com link "Ver no edital" no relatório HTML | Feito (pedido do time após a v2) | `frontend/src/pdf.ts`, `steps/confirmacao.ts`, `steps/edital.ts`, `adapters/pdf/localizador.py` |
+| M22 | PDF com as sugestões: sumário com links, etiquetas que voltam ao sumário, links externos, índice por origem e apontamentos do modelo na cláusula de origem | Feito | `adapters/pdf/annotator.py` |
 
 **Além do planejado:** checagem geométrica simples nas lições. Elementos que a lição proíbe (ex.: janelas) e cuja caixa envolvente toca o ambiente citado entram no apontamento. Na demo, o sistema mostra as janelas J11 e J12 na sala de baterias.

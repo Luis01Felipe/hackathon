@@ -1845,3 +1845,359 @@ textarea {
     flex-wrap: wrap;
   }
 }
+
+/* ------------------------------------------------------------------ visualizador do edital (PDF) */
+
+.pdf-barra {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 0.82rem;
+}
+
+.pdf-pagina-atual {
+  margin-left: 8px;
+  color: var(--muted);
+}
+
+.pdf-so-leitura {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.pdf-rolagem {
+  position: relative;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  background: #d9dee5;
+  padding: 16px;
+}
+
+.pdf-paginas {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.pdf-pagina {
+  position: relative;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(16, 24, 40, 0.25);
+  flex: none;
+}
+
+.pdf-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.pdf-camada {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.pdf-marca {
+  position: absolute;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+  mix-blend-mode: multiply;
+  background: rgba(255, 213, 79, 0.45);
+}
+
+.pdf-marca.sev-alta {
+  background: rgba(229, 115, 115, 0.45);
+}
+
+.pdf-marca.sev-media {
+  background: rgba(255, 183, 77, 0.45);
+}
+
+.pdf-marca.sev-baixa {
+  background: rgba(144, 164, 174, 0.38);
+}
+
+.pdf-marca.origem-modelo {
+  box-shadow: inset 0 -2px 0 var(--modelo);
+}
+
+.pdf-marca.topico-selecionado {
+  background: rgba(255, 213, 79, 0.32);
+  box-shadow: inset 3px 0 0 #f5a400;
+}
+
+.pdf-marca.topico-sugerido {
+  background: transparent;
+  outline: 2px dashed #8a94a3;
+  outline-offset: -2px;
+  mix-blend-mode: normal;
+}
+
+.pdf-marca.realce {
+  animation: realce-pdf 1.6s ease-out 2;
+  outline: 3px solid var(--primary);
+  outline-offset: 1px;
+}
+
+@keyframes realce-pdf {
+  0% {
+    box-shadow: 0 0 0 0 rgba(31, 95, 191, 0.6);
+  }
+  100% {
+    box-shadow: 0 0 0 12px rgba(31, 95, 191, 0);
+  }
+}
+
+.pdf-etiqueta {
+  position: absolute;
+  left: 2px;
+  transform: translateY(-2px);
+  font: 700 10px/1.2 var(--mono);
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid var(--edital);
+  background: #fff;
+  color: var(--edital);
+  cursor: pointer;
+  z-index: 2;
+}
+
+.pdf-etiqueta.origem-modelo {
+  border-color: var(--modelo);
+  color: var(--modelo);
+}
+
+.pdf-etiqueta.topico-selecionado,
+.pdf-etiqueta.topico-sugerido {
+  border-color: #b98000;
+  color: #7a5500;
+}
+
+.pdf-etiqueta.topico-sugerido {
+  border-style: dashed;
+  color: var(--muted);
+  border-color: #8a94a3;
+}
+
+.pdf-etiqueta.realce {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  z-index: 3;
+}
+
+/* confirmação dos tópicos (sobreposição em tela cheia) */
+.revisao-pdf {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(16, 24, 40, 0.55);
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 16px;
+}
+
+.revisao-pdf-caixa {
+  background: var(--surface);
+  border-radius: var(--radius);
+  width: min(1500px, 100%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.revisao-pdf-cabecalho,
+.revisao-pdf-rodape {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.revisao-pdf-cabecalho {
+  justify-content: space-between;
+}
+
+.revisao-pdf-rodape {
+  border-top: 1px solid var(--border);
+  border-bottom: none;
+}
+
+.revisao-pdf-corpo,
+.edital-grade {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  min-height: 0;
+  flex: 1;
+}
+
+.revisao-pdf-visualizador,
+.edital-visualizador {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+}
+
+.revisao-pdf-lateral,
+.edital-lateral {
+  position: relative;
+  overflow: auto;
+  padding: 12px;
+  background: var(--surface-2);
+}
+
+.revisao-grupo {
+  margin-bottom: 14px;
+}
+
+.revisao-grupo h4,
+.revisao-grupo summary,
+.edital-grupo {
+  font-size: 0.85rem;
+  margin: 6px 0;
+  color: var(--muted);
+}
+
+.revisao-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+}
+
+.revisao-item.escolhido {
+  background: #fff8e1;
+}
+
+.revisao-item.ativo,
+.edital-item.ativo {
+  border-color: var(--primary);
+  background: var(--surface);
+}
+
+.revisao-item-titulo {
+  text-align: left;
+}
+
+/* resultados: alternância de visão e aba Edital */
+.alternador-visao {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--neutro-soft);
+  border-radius: 999px;
+  margin: 4px 0 12px;
+}
+
+.visao {
+  font: inherit;
+  font-size: 0.9rem;
+  border: none;
+  background: transparent;
+  padding: 7px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.visao.ativa {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 700;
+  box-shadow: var(--shadow);
+}
+
+.aba-edital .edital-grade {
+  flex: none;
+  height: calc(100vh - 220px);
+  min-height: 520px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.edital-item {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--neutro);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  margin-bottom: 8px;
+}
+
+.edital-item.sev-alta {
+  border-left-color: var(--alta);
+}
+
+.edital-item.sev-media {
+  border-left-color: #e07b00;
+}
+
+.edital-item.borda-edital {
+  box-shadow: inset -4px 0 0 var(--edital);
+}
+
+.edital-item.borda-modelo {
+  box-shadow: inset -4px 0 0 var(--modelo);
+}
+
+.edital-item-cabecalho {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  background: none;
+  border: none;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: inherit;
+}
+
+.edital-detalhe {
+  padding: 0 10px 10px;
+  display: grid;
+  gap: 6px;
+  font-size: 0.88rem;
+}
+
+.decisao-registrada {
+  background: var(--neutro-soft);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  margin: 0;
+}
+
+@media (max-width: 960px) {
+  .revisao-pdf-corpo,
+  .edital-grade {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(360px, 1fr) auto;
+  }
+
+  .aba-edital .edital-grade {
+    height: auto;
+  }
+
+  .revisao-pdf-visualizador,
+  .edital-visualizador {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    min-height: 420px;
+  }
+}

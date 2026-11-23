@@ -29,6 +29,7 @@ import type {
   StatusDecisao,
 } from "../types";
 import { citacao } from "./eir";
+import { renderAbaEdital, type AbaEdital } from "./edital";
 import {
   append,
   avisos,
@@ -50,10 +51,23 @@ import { Viewer3D } from "../viewer";
 let viewer: Viewer3D | null = null;
 let geracao = 0;
 
+type Visao = "painel" | "edital";
+let visao: Visao = "painel";
+let focoEdital: string | null = null;
+let abaEdital: AbaEdital | null = null;
+
 export function descartarResultados(): void {
   geracao += 1;
   viewer?.dispose();
   viewer = null;
+  abaEdital?.dispose();
+  abaEdital = null;
+}
+
+/** Abre os resultados direto na aba "Edital", no trecho do apontamento (link do relatório HTML). */
+export function pedirFocoNoEdital(apontamentoId: string | null): void {
+  visao = "edital";
+  focoEdital = apontamentoId;
 }
 
 type Aba = "edital" | "modelo" | "manual" | "todos";
@@ -450,11 +464,107 @@ export function renderResultados(ctx: Ctx): HTMLElement {
       planoB(mensagemErro(e));
     }
   };
-  if (!relatorio.sem_modelo) requestAnimationFrame(() => void iniciarViewer());
+  // As duas visões ficam montadas e só alternam a visibilidade: o modelo 3D não é
+  // descartado no meio do carregamento e mantém a seleção ao voltar ao painel.
+  const painelConteudo = h("div", { class: "visao-painel" });
+  const editalConteudo = h("div", { class: "visao-edital" });
+  let viewerIniciado = false;
+  const botoesVisao = new Map<Visao, HTMLButtonElement>();
+
+  const mostrarVisao = (nova: Visao) => {
+    visao = nova;
+    for (const [valor, botaoVisao] of botoesVisao) {
+      botaoVisao.classList.toggle("ativa", valor === nova);
+      botaoVisao.setAttribute("aria-selected", valor === nova ? "true" : "false");
+    }
+    painelConteudo.hidden = nova !== "painel";
+    editalConteudo.hidden = nova !== "edital";
+    if (nova === "edital" && !abaEdital) {
+      abaEdital = renderAbaEdital(relatorio, decisoes, {
+        foco: focoEdital,
+        abrirNoPainel: (apt) => {
+          filtros.aba = "todos";
+          mostrarVisao("painel");
+          desenharAbas();
+          desenharLista();
+          mostrarApontamento(apt, true);
+          requestAnimationFrame(() => detalhe.scrollIntoView({ behavior: "smooth", block: "start" }));
+        },
+      });
+      focoEdital = null;
+      editalConteudo.append(abaEdital.elemento);
+    }
+    if (nova === "painel" && !viewerIniciado && !relatorio.sem_modelo) {
+      viewerIniciado = true;
+      requestAnimationFrame(() => void iniciarViewer());
+    }
+  };
+
+  const alternador = h(
+    "div",
+    { class: "alternador-visao", role: "tablist", "aria-label": "Visão dos resultados" },
+    (
+      [
+        ["painel", relatorio.sem_modelo ? "Painel de apontamentos" : "Painel e modelo 3D"],
+        ["edital", "Edital com os ajustes (PDF)"],
+      ] as [Visao, string][]
+    ).map(([valor, texto]) => {
+      const botaoVisao = h(
+        "button",
+        { type: "button", role: "tab", class: "visao", onclick: () => mostrarVisao(valor) },
+        texto,
+      );
+      botoesVisao.set(valor, botaoVisao);
+      return botaoVisao;
+    }),
+  );
 
   // ---------------------------------------------------------------- montagem
-  append(secao, [
+  append(painelConteudo, [
+    relatorio.sem_modelo
+      ? h("div", { class: "grade-resultados sem-modelo" }, detalhe)
+      : h("div", { class: "grade-resultados" }, blocoViewer, detalhe),
     h(
+      "div",
+      { class: "cartao" },
+      h(
+        "div",
+        { class: "cartao-titulo" },
+        h("h3", null, "Apontamentos"),
+        h("label", { class: "campo-inline" }, "Estou usando como: ", selectPerfil),
+        contagem,
+      ),
+      abas,
+      h("div", { class: "barra-ferramentas" }, selectTipo, selectSeveridade, busca),
+      listaApts,
+    ),
+    secoesComplementares(relatorio),
+    h(
+      "div",
+      { class: "acoes" },
+      botao("← Verificação", () => ctx.irPara(5), "fantasma"),
+      botao("Revisar os RI", () => ctx.irPara(3), "fantasma"),
+    ),
+  ]);
+  append(secao, [
+    cabecalhoResultados(relatorio),
+    painelIndicadores(relatorio),
+    avisos(relatorio.avisos),
+    alternador,
+    painelConteudo,
+    editalConteudo,
+  ]);
+  mostrarVisao(visao);
+  detalheVazio();
+  desenharAbas();
+  desenharLista();
+  return secao;
+}
+
+function cabecalhoResultados(relatorio: Relatorio): HTMLElement {
+  const projetoId = relatorio.projeto_id;
+  const vid = relatorio.verificacao_id;
+  return (    h(
       "div",
       { class: "cabecalho-passo cabecalho-resultados" },
       h(
@@ -483,38 +593,7 @@ export function renderResultados(ctx: Ctx): HTMLElement {
         linkDownload("RI (.xlsx)", urls.riXlsx(projetoId)),
         linkDownload("JSON", urls.relatorioJson(vid)),
       ),
-    ),
-    painelIndicadores(relatorio),
-    avisos(relatorio.avisos),
-    relatorio.sem_modelo
-      ? h("div", { class: "grade-resultados sem-modelo" }, detalhe)
-      : h("div", { class: "grade-resultados" }, blocoViewer, detalhe),
-    h(
-      "div",
-      { class: "cartao" },
-      h(
-        "div",
-        { class: "cartao-titulo" },
-        h("h3", null, "Apontamentos"),
-        h("label", { class: "campo-inline" }, "Estou usando como: ", selectPerfil),
-        contagem,
-      ),
-      abas,
-      h("div", { class: "barra-ferramentas" }, selectTipo, selectSeveridade, busca),
-      listaApts,
-    ),
-    secoesComplementares(relatorio),
-    h(
-      "div",
-      { class: "acoes" },
-      botao("← Verificação", () => ctx.irPara(5), "fantasma"),
-      botao("Revisar os RI", () => ctx.irPara(3), "fantasma"),
-    ),
-  ]);
-  detalheVazio();
-  desenharAbas();
-  desenharLista();
-  return secao;
+    ));
 }
 
 // ==================================================================== componentes

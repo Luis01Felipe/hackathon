@@ -94,6 +94,18 @@ Apaga o projeto, os arquivos e as verificações. `404` se já não existir.
 
 ### `GET /api/projetos/{id}/modelo.ifc` → IFC enviado (`404` sem modelo)
 
+### `GET /api/projetos/{id}/edital.pdf` → edital original, para o visualizador (`Content-Disposition: inline`)
+
+### `GET /api/projetos/{id}/topicos/regioes`
+
+Faixa de cada tópico no PDF, do título até o início do tópico seguinte (sem cabeçalho e rodapé):
+
+```json
+{ "TOP-06": [{"pagina": 2, "x0": 0.0908, "y0": 0.2308, "x1": 0.9094, "y1": 0.3714}] }
+```
+
+Coordenadas em **frações da página** (0 a 1, origem no canto superior esquerdo), independentes da escala de desenho.
+
 ### `GET /api/projetos/{id}/consumo` → `ConsumoEtapa[]`
 
 ```json
@@ -269,7 +281,23 @@ Seções "Corrigir no edital" e "Corrigir no modelo", verificação manual, disp
 
 Um tópico por apontamento com elementos (modelo e lições). Um viewpoint por elemento. Cada comentário traz nome, classe, GlobalId, pavimento, coordenada XYZ, falha, exigência e trecho de origem. Os rótulos trazem a origem ("Corrigir no modelo" ou "Corrigir no edital").
 
-### `GET /api/verificacoes/{vid}/edital-anotado.pdf` → edital com destaque e nota em cada trecho apontado
+### `GET /api/verificacoes/{vid}/regioes`
+
+Posição de cada apontamento no PDF do edital, para a aba "Edital com os ajustes":
+
+```json
+[{ "apontamento_id": "APT-006", "localizado": true, "paginas": [3],
+   "regioes": [{"pagina": 3, "x0": 0.0958, "y0": 0.452, "x1": 0.7612, "y1": 0.4691}] },
+ { "apontamento_id": "APT-007", "localizado": false, "paginas": [], "regioes": [] }]
+```
+
+- O trecho é localizado palavra por palavra (aceita quebra de linha e hifenização).
+- `localizado: false` com `paginas` preenchido: o visualizador vai para a página citada.
+- Sem `paginas`: o apontamento pede uma cláusula nova (item ausente, lacuna, lição).
+
+### `GET /api/verificacoes/{vid}/edital-anotado.pdf` → PDF com as sugestões
+
+Páginas iniciais com o sumário de ajustes (links para cada trecho e para as referências), grifo e nota em cada trecho, etiqueta na margem que volta ao sumário e índice (bookmarks) "Corrigir no edital" e "Corrigir no modelo". Os apontamentos do modelo aparecem na cláusula que gerou o requisito.
 
 ### `GET /api/verificacoes/{vid}/esclarecimentos.xlsx` → matriz de esclarecimentos (apontamentos do edital, pergunta sugerida e decisão)
 

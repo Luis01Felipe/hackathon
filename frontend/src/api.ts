@@ -7,8 +7,10 @@ import type {
   EirResposta,
   IdsResposta,
   LicaoAprendida,
+  LocalApontamento,
   MarcoEntrega,
   ProjetoResumo,
+  RegiaoPdf,
   Relatorio,
   Requisito,
   StatusDecisao,
@@ -101,6 +103,10 @@ export const api = {
   apagarProjeto: (id: string) => request<void>("DELETE", `/api/projetos/${enc(id)}`),
   topicos: (id: string) => request<Topico[]>("GET", `/api/projetos/${enc(id)}/topicos`),
   consumo: (id: string) => request<ConsumoEtapa[]>("GET", `/api/projetos/${enc(id)}/consumo`),
+  regioesTopicos: (id: string) =>
+    request<Record<string, RegiaoPdf[]>>("GET", `/api/projetos/${enc(id)}/topicos/regioes`),
+  regioesApontamentos: (vid: string) =>
+    request<LocalApontamento[]>("GET", `/api/verificacoes/${enc(vid)}/regioes`),
 
   enviarLicoes: (id: string, arquivos: File[]) => {
     const form = new FormData();
@@ -149,6 +155,7 @@ export const api = {
 
 export const urls = {
   riXlsx: (id: string) => rota(`/api/projetos/${enc(id)}/ri.xlsx`),
+  editalPdf: (id: string) => rota(`/api/projetos/${enc(id)}/edital.pdf`),
   idsXml: (id: string) => rota(`/api/projetos/${enc(id)}/ids.xml`),
   modeloIfc: (id: string) => rota(`/api/projetos/${enc(id)}/modelo.ifc`),
   relatorioJson: (vid: string) => rota(`/api/verificacoes/${enc(vid)}/relatorio`),

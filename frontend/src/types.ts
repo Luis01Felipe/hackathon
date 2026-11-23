@@ -48,6 +48,23 @@ export interface Evidencia {
   fonte: FonteEvidencia;
 }
 
+/** Retângulo numa página do PDF, em frações da página (0 a 1, origem no canto superior esquerdo). */
+export interface RegiaoPdf {
+  pagina: number;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+export interface LocalApontamento {
+  apontamento_id: string;
+  localizado: boolean;
+  /** Páginas citadas no edital, mesmo quando o trecho exato não foi localizado. */
+  paginas: number[];
+  regioes: RegiaoPdf[];
+}
+
 export interface LicaoAprendida {
   id: string;
   titulo: string;

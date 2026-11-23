@@ -58,6 +58,9 @@
   .decisao { background: #f6f7f9; border: 1px dashed #b8c0cc; border-radius: 6px; padding: 6px 10px; margin-top: 8px; font-size: 13px; }
   .licoes td, .licoes th { font-size: 13px; }
   .fonte-licoes { border-left-color: #a0522d; }
+  .ver-edital { margin: 6px 0 0; font-size: 13px; }
+  .ver-edital a { font-weight: 600; color: var(--primary); }
+  @media print { .ver-edital { display: none; } }
 </style>
 </head>
 <body>
@@ -134,6 +137,9 @@
   <div class="campo"><b>Referências:</b>
     {% for ref in a.referencias %}{% if ref.uri %}<a href="{{ ref.uri }}" target="_blank" rel="noopener">{{ ref.rotulo }}</a>{% else %}{{ ref.rotulo }}{% endif %}{% if not loop.last %}; {% endif %}{% endfor %}
   </div>
+  {% endif %}
+  {% if a.evidencias_edital | selectattr("fonte.value", "equalto", "edital") | list %}
+  <p class="ver-edital"><a href="../../../#verificacao={{ r.verificacao_id }}&amp;apontamento={{ a.id }}" target="_blank" rel="noopener">Ver no edital ↗</a> <span class="pequeno">(abre o EditalCheck no trecho; funciona enquanto o projeto estiver ativo)</span></p>
   {% endif %}
   {% set d = decisoes.get(a.id) %}
   {% if d %}

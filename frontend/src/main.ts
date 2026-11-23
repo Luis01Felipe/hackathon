@@ -3,7 +3,7 @@ import { api } from "./api";
 import { PASSOS, estadoInicial, passoMaximo, type Ctx, type Estado, type Passo } from "./state";
 import { renderEir } from "./steps/eir";
 import { renderIds } from "./steps/ids";
-import { descartarResultados, renderResultados } from "./steps/resultados";
+import { descartarResultados, pedirFocoNoEdital, renderResultados } from "./steps/resultados";
 import { renderTopicos } from "./steps/topicos";
 import { renderUpload } from "./steps/upload";
 import { pararPolling, renderVerificacao } from "./steps/verificacao";
@@ -228,6 +228,30 @@ function montarShell(): void {
   raiz!.append(faixa, cabecalho, stepper, conteudo, rodape);
 }
 
+/**
+ * Link do relatório HTML ("Ver no edital"): #verificacao=<id>&apontamento=<APT>.
+ * Recarrega os resultados da verificação, se ela ainda estiver em memória no servidor.
+ */
+async function abrirPorLink(): Promise<boolean> {
+  const parametros = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const verificacaoId = parametros.get("verificacao");
+  if (!verificacaoId) return false;
+  history.replaceState(null, "", window.location.pathname + window.location.search);
+  try {
+    const relatorio = await api.relatorio(verificacaoId);
+    estado.relatorio = relatorio;
+    estado.projeto = await api.projeto(relatorio.projeto_id);
+    estado.verificacao = await api.verificacao(verificacaoId);
+    estado.eir = await api.ri(relatorio.projeto_id).catch(() => null);
+    estado.passo = 6;
+    pedirFocoNoEdital(parametros.get("apontamento"));
+    return true;
+  } catch (e) {
+    toast(`Não foi possível abrir o resultado: ${mensagemErro(e)} O projeto pode ter expirado.`, "erro");
+    return false;
+  }
+}
+
 async function iniciar(): Promise<void> {
   montarShell();
   try {
@@ -235,6 +259,7 @@ async function iniciar(): Promise<void> {
   } catch {
     estado.config = null;
   }
+  await abrirPorLink();
   renderizar();
   pedirConsentimento();
 }

@@ -12,6 +12,13 @@ Entradas: **edital em PDF**, **modelo IFC** (opcional) e **lições aprendidas**
 
 Cada apontamento diz **onde está o problema** (no **edital**, o contratante corrige; no **modelo**, o contratado corrige), **o que** está errado, **onde** (página e/ou GlobalId com coordenada XYZ), **como agir** e **por que**. Cada parte registra a decisão (aceito, rejeitado, em discussão, dispensado). Os apontamentos do modelo aparecem num **visualizador 3D** e num **BCF**. Os do edital saem num **edital anotado em PDF** e numa **matriz de esclarecimentos**.
 
+**Edital na tela (só leitura).** O edital em PDF aparece em dois momentos:
+
+- **Antes de gerar os RI:** o PDF mostra os tópicos selecionados grifados e, tracejados, os relevantes para BIM que ficaram de fora. Dá para marcar ou desmarcar ali mesmo e voltar.
+- **Nos resultados (aba "Edital com os ajustes"):** o PDF fica à esquerda, com um grifo por apontamento, e os ajustes à direita. Clicar num ajuste leva ao trecho e abre o detalhe; clicar num grifo abre o ajuste. O relatório HTML tem um link "Ver no edital" em cada apontamento.
+
+O **PDF com as sugestões** traz o mesmo conteúdo para uso sem o sistema: sumário com links para cada trecho, grifos com notas, etiquetas na margem que voltam ao sumário, links para buildingSMART e bSDD e um índice lateral (bookmarks) separado em "Corrigir no edital" e "Corrigir no modelo".
+
 > Sem IFC, o sistema revisa só o edital. Esse é o uso do contratante antes de publicar a licitação.
 
 **Tese:** a IA interpreta o texto. Tudo o que precisa ser exato (IDS, validação, BCF, métricas) é código determinístico sobre padrões abertos. Toda citação da IA é conferida literalmente contra o texto do PDF.
@@ -209,7 +216,7 @@ O "extra" do Gemini é a cláusula 6.1.1 ("a fiscalização verificará o modelo
 ## Licenças
 
 - Backend: IfcOpenShell e ifctester (LGPL-3.0), **bcf-client (GPL-3.0)**, **PyMuPDF (AGPL-3.0 ou licença comercial da Artifex)**, FastAPI (MIT), Pydantic (MIT), google-genai (Apache-2.0). Na prática, o backend precisa ser distribuído sob AGPL-3.0, ou é preciso trocar o leitor de PDF e o escritor de BCF. Os adaptadores `EditalReader` e `BcfWriter` isolam essas trocas. A licença do repositório é uma decisão do time.
-- Frontend: `@thatopen/components` 3.6.0 e `@thatopen/fragments` 3.6.1 (MIT), three.js (MIT), web-ifc (MPL-2.0). Nenhum pacote AGPL no frontend (RNF-09).
+- Frontend: `@thatopen/components` 3.6.0 e `@thatopen/fragments` 3.6.1 (MIT), three.js (MIT), web-ifc (MPL-2.0), `pdfjs-dist` 6.5.438 (Mozilla pdf.js, Apache-2.0, build "legacy" para navegadores mais antigos). Nenhum pacote AGPL no frontend (RNF-09).
 
 ## Documentos
 

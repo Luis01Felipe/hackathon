@@ -3,6 +3,7 @@ import { api } from "../api";
 import type { Ctx } from "../state";
 import type { Topico } from "../types";
 import { badge, botao, carregando, erro, h, limpar, mensagemErro, paginas, vazio } from "../ui";
+import { abrirConfirmacaoTopicos } from "./confirmacao";
 
 /** Agrupadores não têm texto próprio: só os demais tópicos vão para os requisitos de informação (RI). */
 const selecionavel = (t: Topico): boolean => !t.agrupador;
@@ -81,7 +82,7 @@ export function renderTopicos(ctx: Ctx): HTMLElement {
     const n = estado.selecionados.size;
     contador.textContent = `${n} de ${totalSelecionaveis} tópico(s) selecionado(s)`;
     gerar.disabled = n === 0;
-    gerar.textContent = n ? `Gerar RI dos ${n} tópico(s) →` : "Gerar requisitos (RI)";
+    gerar.textContent = n ? `Conferir no edital e gerar RI (${n}) →` : "Gerar requisitos (RI)";
   };
 
   const lista = h("ul", { class: "lista-topicos" });
@@ -144,7 +145,7 @@ export function renderTopicos(ctx: Ctx): HTMLElement {
     sincronizar();
   };
 
-  gerar.addEventListener("click", async () => {
+  const executarGeracao = async () => {
     const selecionados = topicos.filter((t) => estado.selecionados.has(t.id)).map((t) => t.id);
     if (!selecionados.length) return;
     gerar.disabled = true;
@@ -163,6 +164,18 @@ export function renderTopicos(ctx: Ctx): HTMLElement {
       status.append(erro(mensagemErro(e)));
       gerar.disabled = false;
     }
+  };
+
+  // Antes de gerar, a pessoa confere no próprio edital o que foi selecionado.
+  gerar.addEventListener("click", () => {
+    if (!estado.selecionados.size) return;
+    abrirConfirmacaoTopicos({
+      projetoId: projeto.id,
+      topicos,
+      selecionados: estado.selecionados,
+      aoMudar: () => sincronizar(),
+      aoConfirmar: () => void executarGeracao(),
+    });
   });
 
   const temSecoes = topicos.some((t) => arvore.filhos(t.id).length);
