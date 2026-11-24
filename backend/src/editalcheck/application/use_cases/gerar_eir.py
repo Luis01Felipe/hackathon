@@ -4,7 +4,7 @@ Aplica as salvaguardas S2 a S4. As lições aprendidas também geram requisitos
 propostos (RF-105), que passam pela aprovação humana como os demais.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 
 from editalcheck.application.concorrencia import por_projeto
@@ -214,6 +214,10 @@ def _chave(requisito: Requisito) -> tuple:
     )
 
 
+def _sem_progresso() -> None:
+    return None
+
+
 def numerar(requisitos: Sequence[Requisito], inicio: int = 1) -> list[Requisito]:
     return [replace(r, id=f"REQ-{i:03d}") for i, r in enumerate(requisitos, start=inicio)]
 
@@ -278,31 +282,67 @@ class GerarEir:
                     f"LLM indisponível no tópico {topico.numero}: usando regras determinísticas.",
                 )
 
-    @por_projeto
-    def executar(self, projeto_id: str, topico_ids: Sequence[str]) -> ResultadoEir:
-        with em_projeto(projeto_id):
-            return self._executar(projeto_id, topico_ids)
+    def validar_selecao(self, projeto_id: str, topico_ids: Sequence[str]) -> int:
+        """Confere a seleção sem chamar o LLM e devolve quantas extrações a geração fará."""
+        projeto = self._projeto(projeto_id)
+        return len(self._selecionar(projeto, topico_ids)) + len(projeto.licoes)
 
-    def _executar(self, projeto_id: str, topico_ids: Sequence[str]) -> ResultadoEir:
+    @por_projeto
+    def executar(
+        self,
+        projeto_id: str,
+        topico_ids: Sequence[str],
+        progresso: Callable[[], None] | None = None,
+    ) -> ResultadoEir:
+        """Gera os IR. ``progresso`` é chamado ao fim de cada tópico e de cada lição."""
+        with em_projeto(projeto_id):
+            return self._executar(projeto_id, topico_ids, progresso or _sem_progresso)
+
+    def _projeto(self, projeto_id: str) -> Projeto:
         projeto = self._repo.get(projeto_id)
         if projeto is None:
             raise NaoEncontradoError("Projeto não encontrado.")
+        return projeto
+
+    @staticmethod
+    def _selecionar(projeto: Projeto, topico_ids: Sequence[str]) -> list[Topico]:
         if not topico_ids or any(projeto.topico(t) is None for t in topico_ids):
             raise EntradaInvalidaError("Selecione ao menos um tópico válido.")
         # Agrupadores não têm texto próprio: entram os subtópicos deles.
         selecionados = expandir_selecao(projeto.topicos, topico_ids)
         if not selecionados:
             raise EntradaInvalidaError("Os tópicos selecionados não têm texto para verificar.")
+        return selecionados
+
+    def _executar(
+        self, projeto_id: str, topico_ids: Sequence[str], progresso: Callable[[], None]
+    ) -> ResultadoEir:
+        projeto = self._projeto(projeto_id)
+        selecionados = self._selecionar(projeto, topico_ids)
 
         avisos: list[str] = []
         contexto = self._validador.contexto(
             projeto, selecionados, self._vocab, self._termos_bsdd(selecionados, avisos)
         )
+
+        def do_topico(topico: Topico) -> tuple[list[Requisito], str | None]:
+            try:
+                return self._extrair(topico, contexto)
+            finally:
+                progresso()
+
+        def da_licao(licao: LicaoAprendida) -> tuple[list[Requisito], str | None]:
+            try:
+                return self._da_licao(projeto, licao)
+            finally:
+                progresso()
+
         with ExecutorComContexto(self._paralelismo) as executor:
-            extraidos = list(executor.map(lambda t: self._extrair(t, contexto), selecionados))
-            das_licoes = list(
-                executor.map(lambda licao: self._da_licao(projeto, licao), projeto.licoes)
-            )
+            # Tópicos e lições entram juntos na fila: as lições não esperam o tópico mais lento.
+            pendentes_topicos = executor.map(do_topico, selecionados)
+            pendentes_licoes = executor.map(da_licao, projeto.licoes)
+            extraidos = list(pendentes_topicos)
+            das_licoes = list(pendentes_licoes)
 
         aprovados: list[Requisito] = []
         vistos: set[tuple] = set()

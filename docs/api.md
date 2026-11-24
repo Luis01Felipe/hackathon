@@ -185,9 +185,29 @@ Substitui a lista (até 20). Marco sem `id` recebe um novo. Marcos removidos sae
   "aprovado_por": null, "requisitos": [Requisito], "avisos": ["..."], "descartados": 1 }
 ```
 
+### `POST /api/projetos/{id}/ir/geracao` → `202` com `GeracaoIr`
+
+Corpo: `{"topicos": ["TOP-05", "TOP-06"]}`. Inicia em segundo plano a geração dos IR dos tópicos e das lições aprendidas e responde na hora.
+Seleção inválida responde `422` e projeto inexistente `404`, antes de chamar o LLM.
+Se o projeto já tem uma geração em andamento, a resposta é essa mesma geração: um pedido repetido não dispara outra rodada no LLM.
+
+`GeracaoIr`:
+
+```json
+{ "id": "3f2a9c1d7e6b4a08", "status": "processando", "concluidos": 5, "total": 16,
+  "erro": null, "ir": null }
+```
+
+`status` é `processando`, `concluida` (com `ir` = `EirResposta`) ou `falhou` (com `erro`). `concluidos` e `total` contam tópicos e lições lidos pelo LLM.
+
+### `GET /api/projetos/{id}/ir/geracao` → `GeracaoIr`
+
+Consulte a cada 2 s até `concluida` ou `falhou`. Responde `404` se nenhuma geração foi iniciada no projeto.
+
 ### `POST /api/projetos/{id}/ir`
 
-Corpo: `{"topicos": ["TOP-05", "TOP-06"]}`. Gera os IR dos tópicos e das lições aprendidas (síncrono).
+Mesmo corpo e mesma geração, síncrona: a resposta (`EirResposta`) só sai no fim, cerca de 1 minuto depois com o LLM ligado.
+Serve para scripts e testes. O frontend usa `/ir/geracao`: uma requisição aberta por tanto tempo cai em proxies, firewalls e redes móveis com limite de inatividade.
 
 ### `GET /api/projetos/{id}/ir` → `EirResposta` (`404` se ainda não gerados)
 

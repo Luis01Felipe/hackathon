@@ -39,6 +39,7 @@ from editalcheck.application.ports import AuditLog, ProjectRepository
 from editalcheck.application.use_cases.excluir_projeto import ExcluirProjeto
 from editalcheck.application.use_cases.executar_verificacao import ExecutarVerificacao
 from editalcheck.application.use_cases.gerar_eir import GerarEir, ValidadorRequisitos
+from editalcheck.application.use_cases.gerar_eir_em_segundo_plano import GerarEirEmSegundoPlano
 from editalcheck.application.use_cases.gerar_ids import GerarIds
 from editalcheck.application.use_cases.gerar_relatorio import (
     DecidirApontamento,
@@ -66,6 +67,7 @@ class Container:
     importar: ImportarDocumentos
     importar_licoes: ImportarLicoes
     gerar_eir: GerarEir
+    geracao_eir: GerarEirEmSegundoPlano
     revisar_eir: RevisarEir
     gerar_ids: GerarIds
     verificar: ExecutarVerificacao
@@ -188,6 +190,17 @@ def construir(settings: Settings) -> Container:
         repositorio, PyMuPdfEditalAnnotator(), XlsxClarificationExporter()
     )
     localizar = LocalizarNoEdital(repositorio, localizador)
+    gerar_eir = GerarEir(
+        repositorio,
+        validador,
+        extrator,
+        extrator_regras,
+        dicionario,
+        vocabulario.classes,
+        vocabulario.classes_en,
+        paralelismo=settings.llm_paralelismo,
+    )
+    geracao_eir = GerarEirEmSegundoPlano(gerar_eir)
 
     def liberar_memoria(projeto_id: str, arquivos: Mapping[str, bytes]) -> None:
         if (modelo := arquivos.get(ARQUIVO_MODELO)) is not None:
@@ -196,6 +209,7 @@ def construir(settings: Settings) -> Container:
         exportar_edital.esquecer(projeto_id)
         medidor.esquecer(projeto_id)
         travas_projeto.esquecer(projeto_id)
+        geracao_eir.esquecer(projeto_id)
 
     limpezas.append(liberar_memoria)
     return Container(
@@ -212,16 +226,8 @@ def construir(settings: Settings) -> Container:
             auditoria,
         ),
         importar_licoes=importar_licoes,
-        gerar_eir=GerarEir(
-            repositorio,
-            validador,
-            extrator,
-            extrator_regras,
-            dicionario,
-            vocabulario.classes,
-            vocabulario.classes_en,
-            paralelismo=settings.llm_paralelismo,
-        ),
+        gerar_eir=gerar_eir,
+        geracao_eir=geracao_eir,
         revisar_eir=RevisarEir(repositorio, validador, vocabulario.classes),
         gerar_ids=gerar_ids,
         verificar=ExecutarVerificacao(

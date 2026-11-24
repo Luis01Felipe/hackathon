@@ -1,7 +1,7 @@
 // Passo 2 — Seleção dos tópicos do edital, em árvore (seções e subtópicos).
-import { api } from "../api";
+import { api, falhaPassageira } from "../api";
 import type { Ctx } from "../state";
-import type { Topico } from "../types";
+import type { EirResposta, GeracaoIr, Topico } from "../types";
 import {
   barraFiltros,
   botaoLimpar,
@@ -198,17 +198,22 @@ export function renderTopicos(ctx: Ctx): HTMLElement {
     const selecionados = topicos.filter((t) => estado.selecionados.has(t.id)).map((t) => t.id);
     if (!selecionados.length) return;
     gerar.disabled = true;
+    const inicio = performance.now();
+    const andamento = h("span", null, textoAndamento(null, inicio));
     limpar(status);
-    status.append(
-      carregando(
-        "Extraindo requisitos dos tópicos e conferindo cada citação contra o texto do edital… Isso pode levar alguns segundos.",
-      ),
-    );
+    status.append(h("div", { class: "carregando", role: "status" }, h("span", { class: "spinner" }), andamento));
+    // Outro projeto aberto no meio da geração: o resultado deste não vale mais.
+    const vigente = () => estado.projeto?.id === projeto.id;
     try {
-      estado.eir = await api.gerarIr(projeto.id, selecionados);
+      const eir = await acompanharGeracao(projeto.id, selecionados, vigente, (g) => {
+        andamento.textContent = textoAndamento(g, inicio);
+      });
+      if (!eir || !vigente()) return;
+      estado.eir = eir;
       estado.ids = null;
       ctx.irPara(3);
     } catch (e) {
+      if (!vigente()) return;
       limpar(status);
       status.append(erro(mensagemErro(e)));
       gerar.disabled = false;
@@ -274,6 +279,63 @@ export function renderTopicos(ctx: Ctx): HTMLElement {
   );
   sincronizar();
   return secao;
+}
+
+const INTERVALO_CONSULTA_MS = 2000;
+/** Falhas seguidas de rede toleradas na consulta (~1 min sem falar com o servidor). */
+const FALHAS_TOLERADAS = 30;
+const TENTATIVAS_INICIO = 3;
+
+const esperar = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+
+/**
+ * Gera os IR em segundo plano e consulta o andamento a cada 2 s.
+ *
+ * A geração leva cerca de 1 minuto. Uma requisição aberta por tanto tempo cai em proxies,
+ * firewalls e redes móveis ("Failed to fetch"); consultas curtas não. Quedas passageiras
+ * de rede não interrompem a geração: a consulta tenta de novo. Devolve null se o projeto
+ * deixou de ser o atual no meio do caminho.
+ */
+async function acompanharGeracao(
+  projetoId: string,
+  topicos: string[],
+  vigente: () => boolean,
+  aoAtualizar: (g: GeracaoIr) => void,
+): Promise<EirResposta | null> {
+  let geracao: GeracaoIr | null = null;
+  // O servidor devolve a geração em andamento se o pedido repetido chegar duas vezes.
+  for (let tentativa = 1; !geracao; tentativa++) {
+    try {
+      geracao = await api.iniciarGeracaoIr(projetoId, topicos);
+    } catch (e) {
+      if (!falhaPassageira(e) || tentativa >= TENTATIVAS_INICIO) throw e;
+      await esperar(INTERVALO_CONSULTA_MS);
+      if (!vigente()) return null;
+    }
+  }
+  let falhas = 0;
+  while (geracao.status === "processando") {
+    aoAtualizar(geracao);
+    await esperar(INTERVALO_CONSULTA_MS);
+    if (!vigente()) return null;
+    try {
+      geracao = await api.geracaoIr(projetoId);
+      falhas = 0;
+    } catch (e) {
+      falhas += 1;
+      if (!falhaPassageira(e) || falhas > FALHAS_TOLERADAS) throw e;
+    }
+  }
+  if (geracao.status === "falhou" || !geracao.ir) {
+    throw new Error(geracao.erro ?? "A geração dos requisitos falhou. Tente de novo.");
+  }
+  return geracao.ir;
+}
+
+function textoAndamento(g: GeracaoIr | null, inicio: number): string {
+  const segundos = Math.round((performance.now() - inicio) / 1000);
+  const lidos = g?.total ? ` ${g.concluidos} de ${g.total} tópicos e lições lidos (${segundos} s).` : "";
+  return `Extraindo requisitos e conferindo as citações no edital…${lidos} Leva cerca de 1 minuto.`;
 }
 
 interface Arvore {
