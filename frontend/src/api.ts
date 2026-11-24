@@ -4,6 +4,7 @@ import type {
   Config,
   Decisao,
   EirResposta,
+  GeracaoIr,
   IdsResposta,
   LocalApontamento,
   MarcoEntrega,
@@ -88,7 +89,17 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
     throw erro;
   }
   if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+  try {
+    return (await response.json()) as T;
+  } catch {
+    // A conexão caiu no meio da resposta (ou veio uma página do proxy no lugar do JSON).
+    throw new ApiError("Não foi possível ler a resposta do servidor do EditalCheck.", 0);
+  }
+}
+
+/** Falha de rede ou do proxy que costuma passar sozinha: vale tentar de novo. */
+export function falhaPassageira(e: unknown): boolean {
+  return e instanceof ApiError && [0, 502, 503, 504].includes(e.status);
 }
 
 /** Nome do arquivo no cabeçalho Content-Disposition, se houver. */
@@ -143,8 +154,9 @@ export const api = {
   definirMarcos: (id: string, marcos: { id?: string | null; nome: string; descricao?: string }[]) =>
     request<MarcoEntrega[]>("PUT", `/api/projetos/${enc(id)}/marcos`, { marcos }),
 
-  gerarIr: (id: string, topicos: string[]) =>
-    request<EirResposta>("POST", `/api/projetos/${enc(id)}/ir`, { topicos }),
+  iniciarGeracaoIr: (id: string, topicos: string[]) =>
+    request<GeracaoIr>("POST", `/api/projetos/${enc(id)}/ir/geracao`, { topicos }),
+  geracaoIr: (id: string) => request<GeracaoIr>("GET", `/api/projetos/${enc(id)}/ir/geracao`),
   ir: (id: string) => request<EirResposta>("GET", `/api/projetos/${enc(id)}/ir`),
   atualizarRequisito: (id: string, reqId: string, acao: AcaoRequisito) =>
     request<Requisito>("PATCH", `/api/projetos/${enc(id)}/ir/requisitos/${enc(reqId)}`, acao),

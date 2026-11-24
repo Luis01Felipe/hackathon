@@ -348,6 +348,28 @@ def criar_app(container: Container | None = None) -> FastAPI:
         resultado = c.gerar_eir.executar(projeto_id, corpo.topicos)
         return dto.eir_resposta(resultado.eir, resultado.avisos, resultado.descartados)
 
+    @app.post("/api/projetos/{projeto_id}/ir/geracao", status_code=202)
+    def iniciar_geracao_ir(
+        projeto_id: str, corpo: dto.CriarEirRequest, tarefas: BackgroundTasks
+    ) -> dict[str, Any]:
+        """Gera os IR em segundo plano; o andamento sai em ``GET .../ir/geracao``.
+
+        A geração leva cerca de um minuto: uma requisição aberta por tanto tempo cai em
+        proxies e redes com limite de inatividade. Esta rota responde na hora.
+        """
+        geracao, nova = c.geracao_eir.iniciar(projeto_id, corpo.topicos)
+        if nova:
+            tarefas.add_task(c.geracao_eir.executar, geracao)
+        return dto.geracao_ir(geracao)
+
+    @app.get("/api/projetos/{projeto_id}/ir/geracao")
+    def obter_geracao_ir(projeto_id: str) -> dict[str, Any]:
+        projeto_ou_404(projeto_id)
+        geracao = c.geracao_eir.obter(projeto_id)
+        if geracao is None:
+            raise NaoEncontradoError("Nenhuma geração de IR foi iniciada neste projeto.")
+        return dto.geracao_ir(geracao)
+
     @app.get("/api/projetos/{projeto_id}/ir")
     def obter_ir(projeto_id: str) -> dict[str, Any]:
         projeto = projeto_ou_404(projeto_id)

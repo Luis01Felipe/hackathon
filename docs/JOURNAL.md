@@ -213,3 +213,14 @@ A lista de tópicos do edital "Volume II" (PPP da Linha 6) saía com números re
 - **O sumário impresso era lido como corpo.** O "9.3" do sumário travava a numeração, e itens de tabela ("4 CP's por peça") e anexos internos do capítulo 10 viravam títulos. `domain/sumario.py` lê o sumário (inclusive entradas quebradas em duas linhas e com pontilhado curto); as linhas dele nunca viram títulos e, com 5 entradas ou mais, só abrem tópicos os números que constam nele, com título compatível.
 
 Resultado no edital: 75 tópicos (preâmbulo e capítulos 1 a 14), na ordem, sem números repetidos.
+
+### "Failed to fetch" ao gerar os IR (24/11/2026)
+
+No servidor, a geração dos IR da demonstração ficava minutos em "Extraindo requisitos…" e terminava em "Failed to fetch". O backend não travava: as chamadas ao Gemini terminavam em 50 a 58 s. O problema era o `POST /ir`, uma requisição única aberta por quase 1 minuto. A conexão caía no caminho; numa das execuções, o uvicorn nem registrou a resposta, sinal de cliente já desconectado. No servidor, a mesma geração levou 54 s pela API e 58 s pelo Chromium.
+
+- **Geração em segundo plano.** `POST /ir/geracao` responde `202` na hora. O navegador consulta `GET /ir/geracao` a cada 2 s e mostra quantos tópicos e lições já foram lidos. Quedas passageiras de rede, de até cerca de 1 minuto, não interrompem a geração. Um pedido repetido não dispara outra rodada no LLM. O `POST /ir` síncrono continua para scripts e testes.
+- **Lições em paralelo com os tópicos.** Antes, as lições só começavam depois do tópico mais lento.
+- **Texto da espera.** "Isso pode levar alguns segundos" virou "Leva cerca de 1 minuto", com o andamento.
+
+Teste de ponta a ponta local, com o extrator atrasado de 3 a 7 s por tópico e 3 consultas derrubadas de propósito: a geração seguiu e abriu os IR com 23 requisitos.
+

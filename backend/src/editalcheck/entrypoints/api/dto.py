@@ -4,6 +4,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from editalcheck.application.use_cases.gerar_eir_em_segundo_plano import GeracaoIr
 from editalcheck.domain.models import (
     ConsumoEtapa,
     Eir,
@@ -164,6 +165,22 @@ def eir_resposta(eir: Eir, avisos: tuple[str, ...] = (), descartados: int = 0) -
         "requisitos": [requisito(r) for r in eir.requisitos],
         "avisos": list(avisos),
         "descartados": descartados,
+    }
+
+
+def geracao_ir(geracao: GeracaoIr) -> dict[str, Any]:
+    resultado = geracao.resultado
+    return {
+        "id": geracao.id,
+        "status": geracao.status.value,
+        "concluidos": geracao.concluidos,
+        "total": geracao.total,
+        "erro": geracao.erro,
+        "ir": (
+            eir_resposta(resultado.eir, resultado.avisos, resultado.descartados)
+            if resultado
+            else None
+        ),
     }
 
 

@@ -189,6 +189,19 @@ export interface EirResposta {
   descartados: number;
 }
 
+export type StatusGeracaoIr = "processando" | "concluida" | "falhou";
+
+/** Geração dos IR em segundo plano (POST/GET /api/projetos/{id}/ir/geracao). */
+export interface GeracaoIr {
+  id: string;
+  status: StatusGeracaoIr;
+  /** Tópicos e lições já lidos pelo LLM. */
+  concluidos: number;
+  total: number;
+  erro: string | null;
+  ir: EirResposta | null;
+}
+
 export interface CamposEdicao {
   descricao?: string;
   ifc_class?: string | null;
